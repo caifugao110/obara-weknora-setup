@@ -1,0 +1,27 @@
+# 工具 / IDE 临时目录
+.workbuddy/
+.trae/
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# 系统文件
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# 环境变量与密钥（严禁入库）
+.env
+.env.*
+*.env.local
+*.pem
+*.key
+
+# 日志与临时产物
+*.log
+logs/
+tmp/
+temp/
+*.bak
+~$*
