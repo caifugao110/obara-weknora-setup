@@ -107,6 +107,8 @@
 ## 4. 部署步骤
 
 > 以下为整体流程概览，每一步的详细操作将在后续章节/文档中补充完善。
+>
+> 📄 **阶段一（Docker 环境）与阶段二（WeKnora 部署）的已实际执行记录**——含具体命令、踩坑原因与验证结果——见 [`docs/deployment-log.md`](docs/deployment-log.md)。
 
 ### 阶段一：虚机与系统准备（信息课 + 业务侧）
 
@@ -249,6 +251,18 @@ docker compose ps
 curl -I http://localhost:8080   # 端口以 .env 中实际配置为准
 ```
 
+**本次实际部署结果**
+
+| 项 | 实际值 |
+| --- | --- |
+| 源码目录 | `/opt/obara/weknora`（Tag `v0.8.3`，commit `3e22822`） |
+| 环境文件 | 由仓库自带的 `.env.example` 复制为 `.env`（非 `config.env.template`） |
+| 端口 | 前端 `80`、后端 `8080`（`FRONTEND_PORT` / `APP_PORT`） |
+| 启用服务 | `app`、`frontend`、`docreader`、`postgres`(paradedb)、`redis` 共 5 个 |
+| 访问地址 | `http://192.168.227.133`，健康检查 `curl http://localhost:8080/health` → `{"status":"ok"}` |
+
+> 📄 镜像清单、`.env` 关键项、踩坑与运维命令的完整记录见 [`docs/deployment-log.md`](docs/deployment-log.md)。
+
 ### 阶段三：部署本地向量模型（Ollama）
 
 ```bash
@@ -340,7 +354,7 @@ docker run -d --name rerank -p 7997:7997 \
 | 阶段 | 内容 | 状态 |
 | --- | --- | --- |
 | 1. 需求评审 & 资源开通 | 方案对齐、虚机开通、网络与账号对接 | ⏳ 进行中（虚机配置已确认） |
-| 2. 试点部署与调试 | 系统部署、导入设计规范、权限、RAG、模型连通调试 | ⏸️ 待开始 |
+| 2. 试点部署与调试 | 系统部署、导入设计规范、权限、RAG、模型连通调试 | ⏳ 进行中（Docker 环境 + WeKnora v0.8.3 已部署完成，见 [`docs/deployment-log.md`](docs/deployment-log.md)） |
 | 3. 部门灰度试用 | 内部收集反馈、问题整改、安全复测 | ⏸️ 待开始 |
 | 4. 试点验收 | 联合信息课评审稳定性、安全、审计能力，出具试点报告 | ⏸️ 待开始 |
 | 5. 二期推广 | 评估扩容（含 GPU 推理节点、公有 API 许可），开放至全公司 | ⏸️ 视试点结果 |
@@ -349,10 +363,10 @@ docker run -d --name rerank -p 7997:7997 \
 
 ## 7. 待确认事项（TODO）
 
-- [ ] 虚机内网 IP / 域名（信息课分配后填入本文档）
+- [x] 虚机内网 IP / 域名 → 已部署机 `192.168.227.133`（VMware NAT）；正式内网域名 / 固定 IP 仍待信息课分配
 - [x] Embedding 模型最终选型 → 导库前在 `bge-m3` / `embeddinggemma:300m` 间 A/B 定夺（含跨语种用例），定稿后方可全量导入
 - [x] 是否启用本地 Rerank 模型 → **启用**，本地部署 `Qwen3-Reranker-0.6B`；CPU 延迟超标再评估关闭或换 `bge-reranker-v2-m3`
-- [ ] WeKnora 部署端口规划（避免与内网已占用端口冲突，需预留 rerank 服务端口）
+- [x] WeKnora 部署端口规划 → 已落地：前端 `80`、后端 `8080`；rerank 服务预留 `7997`，部署阶段五前需确认未被占用
 - [ ] 检索参数按 2.2 节落地（chunk_size=1000 / overlap=200 / top_k / threshold），建库时逐项核对
 - [ ] SSO / LDAP 对接方案（一期可先用 WeKnora 独立账号，二期对接统一账号）
 - [ ] 备份策略细节（频率、保留周期、恢复演练）
@@ -376,16 +390,19 @@ docker run -d --name rerank -p 7997:7997 \
 | 文件 | 用途 |
 | --- | --- |
 | `README.md` | 部署方案、实施计划与验收清单（本文件） |
+| `docs/deployment-log.md` | 阶段一（Docker 环境）与阶段二（WeKnora）的**实际执行记录**：环境基线、具体命令、踩坑根因、验证结果、运维与备份手册 |
 | `scripts/install-docker.sh` | 一键安装 Docker CE + Compose 插件，配置镜像加速器、日志轮转并验证 |
 | `scripts/fix-docker-env.sh` | 修复 APT 源域名、重新探测加速器、重启 Docker 使 `daemon.json` 生效 |
+| `scripts/configure-mirrors.sh` | 国内镜像加速器自动探测与配置（默认只写配置，`--apply` 重启生效） |
 | `scripts/README.md` | 脚本的使用前提、执行步骤与常见问题 |
 | `LICENSE` | MIT 开源协议 |
 
 脚本速查：
 
 ```bash
-sudo bash scripts/install-docker.sh   # 首次安装
-sudo bash scripts/fix-docker-env.sh   # 配置未生效 / 源或加速器异常
+sudo bash scripts/install-docker.sh      # 首次安装
+sudo bash scripts/fix-docker-env.sh      # 配置未生效 / 源或加速器异常
+sudo bash scripts/configure-mirrors.sh   # 重新探测国内镜像加速器并写入配置
 ```
 
 ---
@@ -396,4 +413,4 @@ sudo bash scripts/fix-docker-env.sh   # 配置未生效 / 源或加速器异常
 
 ---
 
-*最后更新：2026-10-24*
+*最后更新：2026-10-25*
