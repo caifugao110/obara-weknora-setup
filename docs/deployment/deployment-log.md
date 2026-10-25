@@ -1,7 +1,7 @@
 # OBARA 知识库系统 — 部署执行记录
 
 > 本文记录**阶段一（Docker 环境）、阶段二（WeKnora 部署）、阶段三（Ollama 本地向量模型）、阶段四（DeepSeek 对话模型）与阶段五（本地 Rerank 重排服务）**的实际执行过程、遇到的问题与验证结果。
-> 顶层方案见 [README](../README.md)；本文只记录"实际怎么做的、踩了什么坑"，便于复现与交接。
+> 顶层方案见 [README](../../README.md)；本文只记录"实际怎么做的、踩了什么坑"，便于复现与交接。
 >
 > 最后更新：2026-10-25（阶段五已完成）
 
@@ -46,9 +46,9 @@
 
 | 脚本 | 用途 |
 | --- | --- |
-| `scripts/install-docker.sh` | 首次安装：依赖 → GPG 公钥 → 清华 docker-ce 源 → 安装 → daemon 配置 → 加组 → 验证 |
-| `scripts/fix-docker-env.sh` | 修复：APT 源域名、daemon.json 未生效、加速器重选 |
-| `scripts/configure-mirrors.sh` | 镜像加速器自动探测与配置（默认只写配置，`--apply` 重启生效） |
+| `scripts/deploy/install-docker.sh` | 首次安装：依赖 → GPG 公钥 → 清华 docker-ce 源 → 安装 → daemon 配置 → 加组 → 验证 |
+| `scripts/deploy/fix-docker-env.sh` | 修复：APT 源域名、daemon.json 未生效、加速器重选 |
+| `scripts/deploy/configure-mirrors.sh` | 镜像加速器自动探测与配置（默认只写配置，`--apply` 重启生效） |
 
 ### 1.2 `/etc/docker/daemon.json` 最终配置
 
@@ -202,14 +202,14 @@ docker image inspect <image>:<tag> --format '{{.Os}}/{{.Architecture}} {{.Id}}'
 | 运行账号 | `ollama`（系统账号，非 root） |
 | 模型目录 | `/opt/ollama/models`（不放在 `$HOME`，便于统一备份与磁盘规划） |
 | 监听 / 状态 | `0.0.0.0:11434`；`active` + `enabled`（开机自启） |
-| 交付脚本 | `scripts/install-ollama.sh`（幂等，可重复执行） |
+| 交付脚本 | `scripts/deploy/install-ollama.sh`（幂等，可重复执行） |
 
 执行记录：
 
 ```bash
-sudo bash scripts/install-ollama.sh                            # 安装服务 + 拉取默认模型 bge-m3
-sudo bash scripts/install-ollama.sh --models "bge-m3 embeddinggemma:300m"   # A/B 前补齐候选模型
-sudo bash scripts/install-ollama.sh --skip-models              # 只装服务
+sudo bash scripts/deploy/install-ollama.sh                            # 安装服务 + 拉取默认模型 bge-m3
+sudo bash scripts/deploy/install-ollama.sh --models "bge-m3 embeddinggemma:300m"   # A/B 前补齐候选模型
+sudo bash scripts/deploy/install-ollama.sh --skip-models              # 只装服务
 ```
 
 耗时实测：发行包 1.7 GB 下载 3m41s（约 8 MB/s），模型层 1.2 GB 约 2m30s（5~7.6 MB/s），合计约 8 分钟。
@@ -411,7 +411,7 @@ WeKnora v0.8.3 中模型记录**没有** `SetDefault` 路由（仅 `storage-back
 
 ## 五、阶段五：本地 Rerank 重排服务
 
-> 执行日期：2026-10-25。交付脚本 `scripts/install-rerank.sh`。
+> 执行日期：2026-10-25。交付脚本 `scripts/deploy/install-rerank.sh`。
 
 ### 5.1 部署结果
 
@@ -516,7 +516,105 @@ but Transformers does not recognize this architecture.
 
 ---
 
-## 六、运维手册
+## 六、阶段六：知识库初始化与小样本验收（进行中）
+
+### 6.1 交付资产
+
+| 文件 / 脚本 | 用途 |
+| --- | --- |
+| `scripts/kb/init-welding-gun-kb.sh` | 建库 → 绑定模型 → 导入文档 → 创建受管智能体 → 写入检索参数（幂等，支持 `--no-wait` / `--status`） |
+| `scripts/kb/verify-welding-gun-kb.sh` | 端到端验收：抽取真实记录自动生成提问 → 调用智能体 → 核对图号是否符合参数约束 |
+| `scripts/kb/build-flat-kb.py` | 把宽表重建为「一行一段」的自然语言短句，解决 §6.3 的截断问题 |
+| `welding-gun-selection-kb/03-flat-knowledge/` | 6 个文件的扁平版（`X2C-C/X/V2-C/V2-X/V3-C/V3-X.md`，共 18,689 行 11 MB） |
+
+### 6.2 已完成的工作
+
+| 项 | 结果 |
+| --- | --- |
+| 知识库 | `焊枪选型知识库`（`2308123d-11dd-4583-be3f-02fbe58c3015`），绑定 Embedding `bge-m3` |
+| 智能体 | `焊枪选型助手`（`8646bb56-fa83-4bf4-be1e-69f7408f2543`），绑定 `deepseek-flash` + `bge-reranker-v2-m3`，答复约束提示词已注入 `config.system_prompt` |
+| 检索参数 | 写入租户级 KV：`embedding_top_k=20`、`rerank_top_k=8`、`rerank_threshold=0.3`、`vector_threshold=0.15` |
+| 已完成解析 | `X2C-V3-C`（152 片），其余 4 个文档已 `cancel-parse` 暂停（文件保留，可 `reparse` 恢复） |
+
+> 关于提示词生效位置的说明：WeKnora v0.8.3 的 KnowledgeBase 上没有「答复约束提示词」字段，
+> 该约束落在**绑定到该知识库的智能体**的 `config.system_prompt` 上；
+> `ResolveCustomAgentPrompts()` 中显式文本优先，因此只要 `system_prompt` 非空就一定生效。
+
+### 6.3 关键发现：`num_ctx=511` 截断 —— 阻塞性质量问题
+
+Excel 直转 Markdown 表格后，每个分片 = 表头（37 列）+ 一行数据，实测：
+
+| 指标 | 数值 |
+| --- | --- |
+| 分片平均长度 | **745 字符** |
+| 超过 511 字符的比例 | **99.9%** |
+| 「图号」在分片中的位置 | 第 **562** 字符 |
+
+`ollama run bge-m3` 的默认上下文是 **511 token**，超出部分被静默丢弃，于是：
+
+- 真正的**数据几乎全部落在向量之外**，只有重复的表头进入了语义空间；
+- 后果很直接 —— 用「SDZC-3C30400L」这个图号本身去检索，Top4 全是别的图号；
+- 这解释了为什么不同行的向量高度相似（表头相同、数据被切掉），区分度极低。
+
+### 6.4 小样本验收结果（数据集：X2C-V3-C，148 条真实记录）
+
+对比两种知识表示：
+
+| 知识表示 | 分片长度 | 随机抽样的端到端正确率 | 固定同一组 5 题 | 平均延迟 |
+| --- | --- | --- | --- | --- |
+| Excel → Markdown 表格（现状） | 745 字符（99.9% 被截断） | **11/13 = 85%** | 5/5 | **36 s** |
+| 一行一段「字段：值」（扁平行） | ≤ 351 字符（不截断） | **10/10 = 100%** | 5/5 | **20 s** |
+
+判定方法不是简单比对「期望图号」，而是**回溯校验**：拿到答案后，回到原始记录核对其喉深 / 喉宽（±50）、
+加压力（±500）、变压器与客户（包含匹配）是否真的满足提问 —— 即按答复约束提示词自身的规则验收。
+
+**失败用例的根因是检索漏召，不是模型编造**：报错的那次回答给出的图号确实存在且客户名匹配，
+正确记录压根没进候选集（`knowledge-search` 只返回 2 条候选）。这是宽 表 + 向量检索的结构性缺陷：
+数值区间筛选本质上不属于语义相似度的能力范围。
+
+**结论**：两种表示在这组题目上都能给出正确答案，但扁平格式**消除了截断隐患**，
+端到端延迟降低约 **45%**（36 s → 20 s）。
+
+**当前决定（2026-10-25）：暂缓扁平格式全量重导，维持表格原样。**
+扁平数据已生成并可随时切换（`03-flat-knowledge/`，18,689 行 11 MB），重建一个新知识库即可，现有库保留做对照。
+
+### 6.5 踩坑记录
+
+| # | 现象 | 根因 / 处理 |
+| --- | --- | --- |
+| 1 | `HTTP 401 invalid or expired token` | `http()` 内部已拼 `Bearer`，外面又拼一次 → 双前缀。**另外**：短期内重复登录会让先前签发的 token 立刻失效，脚本必须「按需刷新」而不是每次调用前都重新登录 |
+| 2 | `--status` 查进度后分片参数被改回默认 | `--status` 路径里也执行了 `PUT /knowledge-bases/{id}`，把本次命令行指定的 `chunk_size` 冲掉了 → 已改为 `--status` 只读不写 |
+| 3 | 解析出的记录数为 0 | docreader 写出的分片把换行吃掉了，表头 / 分隔行 / 数据行以 `\|\|` 粘连 → 解析前先把 `\|\|` 还原成 `\|\n\|` |
+| 4 | 扁平库里所有提问都答「未找到」 | 文件名从 `xxx-knowledge.xlsx` 变成 `xxx.md`，枪型判断取到最后一段是 `C.MD` 而非 `C`，构造提问时把 C 枪说成了 X 枪 → 先剥扩展名再判 `-C` / `-X` |
+| 5 | 多次 login 后新 token 也失效 | 同 #1：服务端每个用户只认最新一次登录，脚本统一改为「先探测 token 是否有效，无效再登录」 |
+
+### 6.6 常用命令
+
+```bash
+# 生成扁平格式文件（从已解析的分片重建，无需二次读取 Excel）
+python3 scripts/kb/build-flat-kb.py --only X2C-V3-C --preview 3
+
+# 用扁平格式建库并全量导入（后台跑，预计 3.5 ~ 4 小时）
+KB_NAME=焊枪选型知识库 KB_DIR=$PWD/welding-gun-selection-kb/03-flat-knowledge \
+CHUNK_SIZE=400 CHUNK_OVERLAP=0 ADMIN_PASSWORD='<后台密码>' \
+  bash scripts/kb/init-welding-gun-kb.sh --no-wait
+
+# 查看入库进度（只读，不改任何参数）
+KB_NAME=焊枪选型知识库 ADMIN_PASSWORD='<后台密码>' bash scripts/kb/init-welding-gun-kb.sh --status
+
+# 暂停：取消排队 / 处理中的文档，释放 CPU（文件保留）
+ADMIN_PASSWORD='<后台密码>' bash scripts/kb/init-welding-gun-kb.sh --pause
+
+# 恢复：对 cancelled / failed 的文档原地重新解析（不重复上传）
+ADMIN_PASSWORD='<后台密码>' bash scripts/kb/init-welding-gun-kb.sh --resume
+
+# 端到端验收
+ADMIN_PASSWORD='<后台密码>' bash scripts/kb/verify-welding-gun-kb.sh --file X2C-V3-C --cases 5 --repeat 2
+```
+
+---
+
+## 七、运维手册
 
 ```bash
 cd /opt/obara/weknora
@@ -589,7 +687,7 @@ curl -s -X POST http://127.0.0.1:7997/rerank -H 'Content-Type: application/json'
        "documents":["电极需800小时更换","员工报销流程"]}'
 
 # 换模型 / 改资源限制
-sudo bash scripts/install-rerank.sh --recreate --cpus 6 --memory 4g --batch-size 8
+sudo bash scripts/deploy/install-rerank.sh --recreate --cpus 6 --memory 4g --batch-size 8
 ```
 
 **需要纳入备份的内容**（在上方基础上新增）：`- /opt/obara/rerank-models`（rerank 权重 2.2 GB；可重下载，备份仅为节省时间）
@@ -598,7 +696,7 @@ sudo bash scripts/install-rerank.sh --recreate --cpus 6 --memory 4g --batch-size
 
 ---
 
-## 七、安全相关（试点结束后回收）
+## 八、安全相关（试点结束后回收）
 
 - `/etc/sudoers.d/tobin-nopasswd`：部署期为便于自动化运维配置的免密 sudo（`NOPASSWD: ALL`），**试点结束后执行 `sudo rm /etc/sudoers.d/tobin-nopasswd` 回收**；所有 sudo 调用仍记录在 `/var/log/auth.log`
 - SSH（22 端口）为文件传输临时开启，如信息课有端口管控要求，用完后可关闭
@@ -607,13 +705,13 @@ sudo bash scripts/install-rerank.sh --recreate --cpus 6 --memory 4g --batch-size
 
 ---
 
-## 八、后续阶段
+## 九、后续阶段
 
 | 阶段 | 内容 | 状态 |
 | --- | --- | --- |
 | 阶段三 | 部署 Ollama，拉取候选向量模型并 A/B 定夺 | ✅ **已完成**（Ollama 0.17.5 + `bge-m3`）；`embeddinggemma:300m` 待 A/B 前拉取后再对比定稿 |
 | 阶段四 | 配置 DeepSeek（`api.deepseek.com`，快速问答 `deepseek-flash` / 智能推理 `deepseek-v4-pro`），Embedding 指向本机 Ollama | ✅ **已完成**（见第四章；三个模型均 active 且上游调用通过） |
 | 阶段五 | 部署本地 Rerank 服务容器，端口 `7997`，禁用公有 rerank API | ✅ **已完成**（见第五章：`infinity 0.0.78-cpu` + `bge-reranker-v2-m3`，已注册到 WeKnora 且端到端调用通过）；首选 `Qwen3-Reranker-0.6B` 因模型架构不被支持暂不可用 |
-| 阶段六 | 创建知识库（绑定 `bge-m3`）、创建 Agent（绑定 `deepseek-flash`）、导入试点文档、验证解析与 RAG 溯源问答（含跨语种验收） | ⏸️ 待开始（建议候选池 ≤ 20、`rerank_top_k=8`） |
+| 阶段六 | 创建知识库（绑定 `bge-m3`）、创建 Agent（绑定 `deepseek-flash`）、导入试点文档、验证解析与选型问答 | 🔄 **进行中**：链路已通（智能体 + 提示词 + 小样本验收通过，见第六章）；待决策是否按扁平格式全量重导 18,689 行（预计 3.5 ~ 4 小时） |
 
-各阶段详细方案与验收清单见 [README §4 部署步骤](../README.md#4-部署步骤)。
+各阶段详细方案与验收清单见 [README §4 部署步骤](../../README.md#4-部署步骤)。

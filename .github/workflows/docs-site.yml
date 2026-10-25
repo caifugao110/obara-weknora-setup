@@ -1,23 +1,21 @@
 name: Docs Site
 
-# 文档（README / docs/** / scripts/*.md）发生变更时，自动重建文档站并发布到 GitHub Pages。
+# 文档（仓库内任意 *.md）发生变更时，自动重建文档站并发布到 GitHub Pages。
 on:
   push:
     branches: [main, master]
     paths:
-      - 'README.md'
-      - 'docs/**'
-      - 'scripts/**/*.md'
-      - 'scripts/build-docs-site.py'
-      - 'scripts/docs-site-template.html'
+      - '**/*.md'
+      - 'LICENSE'
+      - 'scripts/docs-site/build-docs-site.py'
+      - 'scripts/docs-site/docs-site-template.html'
       - '.github/workflows/docs-site.yml'
   pull_request:
     paths:
-      - 'README.md'
-      - 'docs/**'
-      - 'scripts/**/*.md'
-      - 'scripts/build-docs-site.py'
-      - 'scripts/docs-site-template.html'
+      - '**/*.md'
+      - 'LICENSE'
+      - 'scripts/docs-site/build-docs-site.py'
+      - 'scripts/docs-site/docs-site-template.html'
       - '.github/workflows/docs-site.yml'
   workflow_dispatch:
   schedule:
@@ -30,8 +28,8 @@ permissions:
   id-token: write
 
 concurrency:
-  group: docs-site-${{ github.ref }}
-  cancel-in-progress: true
+  group: pages
+  cancel-in-progress: false
 
 jobs:
   build:
@@ -52,10 +50,11 @@ jobs:
         run: python -m pip install --upgrade pip markdown Pygments
 
       - name: 生成静态站点
-        run: python scripts/build-docs-site.py --output site
+        run: python scripts/docs-site/build-docs-site.py --output site
         env:
           GITHUB_REPOSITORY: ${{ github.repository }}
           GITHUB_REF_NAME: ${{ github.ref_name }}
+          TZ: Asia/Shanghai
 
       - name: 校验产物
         run: |

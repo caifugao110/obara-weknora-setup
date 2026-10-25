@@ -1,17 +1,28 @@
-# 部署脚本说明
+# 脚本索引
 
-本目录存放 OBARA 知识库系统（WeKnora）在 Ubuntu 20.04 / 22.04 LTS 上的环境准备与配置脚本，对应主文档《README》阶段一、阶段三、阶段四与阶段五。
+本目录按用途分为三类。**部署流程**脚本放在 `deploy/`，**非部署流程**脚本放在 `kb/`（知识库初始化与验收）和 `docs-site/`（文档站构建）。
+
+```
+scripts/
+├── deploy/      # 部署流程：环境与组件部署（README 阶段一～五）
+├── kb/          # 非部署：知识库初始化、验收与数据转换（README 阶段六）
+└── docs-site/   # 非部署：文档站构建（GitHub Pages）
+```
+
+## 一、部署流程脚本（`deploy/`）
+
+对应主文档《README》阶段一、阶段三、阶段四与阶段五。
 
 | 脚本 | 适用场景 | 执行命令 |
 | --- | --- | --- |
-| `install-docker.sh` | 全新虚机首次安装 Docker | `sudo bash scripts/install-docker.sh` |
-| `fix-docker-env.sh` | Docker 已安装，但配置未生效、APT 源或镜像加速器异常 | `sudo bash scripts/fix-docker-env.sh` |
-| `configure-mirrors.sh` | 重新探测国内镜像加速器 | `sudo bash scripts/configure-mirrors.sh` |
-| `install-ollama.sh` | 阶段三：安装 Ollama 服务并拉取 Embedding 模型 | `sudo bash scripts/install-ollama.sh` |
-| `configure-deepseek.sh` | 阶段四：注册 DeepSeek 对话模型与本地 Ollama 向量模型并验证连通性 | `sudo DEEPSEEK_API_KEY='sk-xxxxx' bash scripts/configure-deepseek.sh` |
-| `install-rerank.sh` | 阶段五：部署本地 Rerank 服务容器并注册到 WeKnora | `sudo bash scripts/install-rerank.sh` |
+| `deploy/install-docker.sh` | 全新虚机首次安装 Docker | `sudo bash scripts/deploy/install-docker.sh` |
+| `deploy/fix-docker-env.sh` | Docker 已安装，但配置未生效、APT 源或镜像加速器异常 | `sudo bash scripts/deploy/fix-docker-env.sh` |
+| `deploy/configure-mirrors.sh` | 重新探测国内镜像加速器 | `sudo bash scripts/deploy/configure-mirrors.sh` |
+| `deploy/install-ollama.sh` | 阶段三：安装 Ollama 服务并拉取 Embedding 模型 | `sudo bash scripts/deploy/install-ollama.sh` |
+| `deploy/configure-deepseek.sh` | 阶段四：注册 DeepSeek 对话模型与本地 Ollama 向量模型并验证连通性 | `sudo DEEPSEEK_API_KEY='sk-xxxxx' bash scripts/deploy/configure-deepseek.sh` |
+| `deploy/install-rerank.sh` | 阶段五：部署本地 Rerank 服务容器并注册到 WeKnora | `sudo bash scripts/deploy/install-rerank.sh` |
 
-## 通用前提
+### 通用前提
 
 - 系统：Ubuntu 20.04 / 22.04 / 24.04，架构 `amd64` 或 `arm64`
 - 权限：root（通过 `sudo` 执行）
@@ -19,12 +30,12 @@
 - 依赖：`curl`、`python3`（`configure-deepseek.sh` 依赖 `python3` 解析 JSON 与构造请求体）
 - 可重复执行；脚本会先备份将被覆盖的配置（`*.bak.<时间戳>`）
 
-## install-docker.sh
+### install-docker.sh
 
 用途：安装 Docker 引擎与 Compose 插件，并完成基础调优，替代手工执行 `get.docker.com` 脚本。
 
 ```bash
-sudo bash scripts/install-docker.sh
+sudo bash scripts/deploy/install-docker.sh
 ```
 
 主要步骤：
@@ -41,12 +52,12 @@ sudo bash scripts/install-docker.sh
 - 当前终端运行 `newgrp docker` 或重新登录，才能免 `sudo` 使用 `docker`
 - 若 `hello-world` 拉取失败，见下方"常见问题"，或执行 `fix-docker-env.sh`
 
-## fix-docker-env.sh
+### fix-docker-env.sh
 
 用途：修复首次安装后常见的环境问题。出现以下任一情况时执行。
 
 ```bash
-sudo bash scripts/fix-docker-env.sh
+sudo bash scripts/deploy/fix-docker-env.sh
 ```
 
 适用场景：
@@ -64,15 +75,15 @@ sudo bash scripts/fix-docker-env.sh
 
 > 注意：第 3 步会整体覆盖现有 `daemon.json`（已自动备份）。若此前手工配置了 `proxies` 等自定义项，需在执行后重新补回。
 
-## install-ollama.sh
+### install-ollama.sh
 
 用途：安装 Ollama 本地模型服务（阶段三），为 WeKnora 提供 Embedding 向量能力。对应主文档《README》阶段三。
 
 ```bash
-sudo bash scripts/install-ollama.sh                                       # 安装服务并拉取 bge-m3
-sudo bash scripts/install-ollama.sh --models "bge-m3 embeddinggemma:300m" # A/B 前补齐候选模型
-sudo bash scripts/install-ollama.sh --skip-models                         # 只装服务不拉模型
-sudo bash scripts/install-ollama.sh --models-dir /data/ollama/models      # 自定义模型目录
+sudo bash scripts/deploy/install-ollama.sh                                       # 安装服务并拉取 bge-m3
+sudo bash scripts/deploy/install-ollama.sh --models "bge-m3 embeddinggemma:300m" # A/B 前补齐候选模型
+sudo bash scripts/deploy/install-ollama.sh --skip-models                         # 只装服务不拉模型
+sudo bash scripts/deploy/install-ollama.sh --models-dir /data/ollama/models      # 自定义模型目录
 ```
 
 主要步骤：
@@ -99,18 +110,18 @@ curl -s http://127.0.0.1:11434/api/tags
 > 注意：下载约 1.8 GB + 模型 1.2 GB，实测全程约 8 分钟，建议用 `nohup ... > /tmp/ollama-install.log 2>&1 &` 后台执行并轮询日志。
 > WeKnora 容器访问 Ollama 需使用宿主 IP（如 `http://192.168.227.133:11434`），不能填 `localhost`。
 
-## configure-deepseek.sh
+### configure-deepseek.sh
 
 用途：阶段四，通过 WeKnora REST API 注册对话模型与向量模型，并做真实上游连通性验证。对应主文档《README》阶段四。
 
 ```bash
 # 密钥优先从环境变量读取；未设置时脚本会交互式询问
-sudo DEEPSEEK_API_KEY='sk-xxxxx' bash scripts/configure-deepseek.sh
+sudo DEEPSEEK_API_KEY='sk-xxxxx' bash scripts/deploy/configure-deepseek.sh
 
-sudo bash scripts/configure-deepseek.sh --api-key 'sk-xxxxx'   # 显式传参
-sudo bash scripts/configure-deepseek.sh --skip-verify       # 只注册不验证（不产生费用）
-sudo bash scripts/configure-deepseek.sh --ollama-url http://192.168.227.133:11434
-sudo bash scripts/configure-deepseek.sh --embed-model bge-m3 --embed-dim 1024
+sudo bash scripts/deploy/configure-deepseek.sh --api-key 'sk-xxxxx'   # 显式传参
+sudo bash scripts/deploy/configure-deepseek.sh --skip-verify       # 只注册不验证（不产生费用）
+sudo bash scripts/deploy/configure-deepseek.sh --ollama-url http://192.168.227.133:11434
+sudo bash scripts/deploy/configure-deepseek.sh --embed-model bge-m3 --embed-dim 1024
 ```
 
 主要步骤：
@@ -126,18 +137,18 @@ sudo bash scripts/configure-deepseek.sh --embed-model bge-m3 --embed-dim 1024
 > ⚠️ 若模型 Base URL 使用裸 IP，需先在 `/opt/obara/weknora/.env` 配置 `SSRF_WHITELIST_EXTRA`，
 >    并执行 `sudo docker compose up -d --force-recreate app` 才生效（`restart` 不重读 `env_file`）。
 
-## install-rerank.sh
+### install-rerank.sh
 
 用途：阶段五，部署本地 Rerank 重排服务并把模型注册到 WeKnora。对应主文档《README》阶段五。
 
 Ollama 不提供 rerank 能力，WeKnora 的 `docker-compose.yml` 也没有内置 rerank 服务，因此用 `infinity`（提供 WeKnora 期望的 Cohere 兼容 `/rerank` 接口）单独起容器；**禁止改用公有 rerank API**（检索片段同属内部资料）。
 
 ```bash
-sudo bash scripts/install-rerank.sh                                   # 下载权重 + 起容器 + 注册 + 验证
-sudo bash scripts/install-rerank.sh --no-register                     # 只部署服务，不注册到 WeKnora
-sudo bash scripts/install-rerank.sh --skip-verify                     # 注册但跳过 WeKnora 侧调用验证
-sudo bash scripts/install-rerank.sh --recreate --cpus 6 --memory 4g   # 改资源限制后重建容器
-sudo bash scripts/install-rerank.sh --model BAAI/bge-reranker-base --engine optimum --container <名> --port 7998   # A/B 第二个实例
+sudo bash scripts/deploy/install-rerank.sh                                   # 下载权重 + 起容器 + 注册 + 验证
+sudo bash scripts/deploy/install-rerank.sh --no-register                     # 只部署服务，不注册到 WeKnora
+sudo bash scripts/deploy/install-rerank.sh --skip-verify                     # 注册但跳过 WeKnora 侧调用验证
+sudo bash scripts/deploy/install-rerank.sh --recreate --cpus 6 --memory 4g   # 改资源限制后重建容器
+sudo bash scripts/deploy/install-rerank.sh --model BAAI/bge-reranker-base --engine optimum --container <名> --port 7998   # A/B 第二个实例
 ```
 
 主要步骤：
@@ -151,12 +162,31 @@ sudo bash scripts/install-rerank.sh --model BAAI/bge-reranker-base --engine opti
 7. 幂等注册到 WeKnora：`type=Rerank` / `source=remote` / `provider=generic`，Base URL `http://<宿主IP>:7997`
 8. 调用 `/api/v1/models/{id}/debug` 验证端到端链路
 
-> ⚠️ 注册需要管理员凭据，推荐写在命令行里：`sudo bash scripts/install-rerank.sh --admin-password '<后台登录密码>'`；
->    也可 `sudo ADMIN_PASSWORD='xxx' bash scripts/install-rerank.sh`（脚本会读取同名环境变量，但某些 sudoers 配置下 `-E` 可能不生效）。
+> ⚠️ 注册需要管理员凭据，推荐写在命令行里：`sudo bash scripts/deploy/install-rerank.sh --admin-password '<后台登录密码>'`；
+>    也可 `sudo ADMIN_PASSWORD='xxx' bash scripts/deploy/install-rerank.sh`（脚本会读取同名环境变量，但某些 sudoers 配置下 `-E` 可能不生效）。
 > ⚠️ 本机 12 核时推荐 `--cpus 6 --batch-size 8`；实测 2 核→6 核延迟下降约 35%，该服务对算力敏感。
 > ⚠️ `Qwen/Qwen3-Reranker-0.6B` 目前**无法**在 `michaelf34/infinity:0.0.78-cpu` 上加载（内置 transformers 不识别 `qwen3` 架构），因此默认用 `BAAI/bge-reranker-v2-m3`。
 
-## 常见问题
+## 二、非部署脚本（`kb/`）
+
+知识库初始化、验收与数据转换，对应主文档《README》阶段六。这些脚本不改变部署环境，只在已部署完成的 WeKnora 上操作数据。
+
+| 脚本 | 用途 | 执行命令 |
+| --- | --- | --- |
+| `kb/init-welding-gun-kb.sh` | 建库 + 绑定模型 + 导入文档 + 创建受管智能体 + 写入检索参数（幂等，支持 `--no-wait` / `--pause` / `--resume` / `--status`） | `sudo ADMIN_PASSWORD='<后台密码>' bash scripts/kb/init-welding-gun-kb.sh` |
+| `kb/verify-welding-gun-kb.sh` | 端到端验收：抽取真实记录自动生成提问 → 调用智能体 → 核对图号 | `sudo ADMIN_PASSWORD='<后台密码>' bash scripts/kb/verify-welding-gun-kb.sh` |
+| `kb/build-flat-kb.py` | 把宽表重建为「一行一段」自然语言短句，规避 `num_ctx=511` 截断（数据取自 Postgres chunks） | `python3 scripts/kb/build-flat-kb.py` |
+
+## 三、非部署脚本（`docs-site/`）
+
+文档站构建，与部署环境无关，仅用于本地预览与 GitHub Actions 发布。
+
+| 脚本 | 用途 | 执行命令 |
+| --- | --- | --- |
+| `docs-site/build-docs-site.py` | 扫描仓库 Markdown → 渲染单页静态站点（输出到 `site/`） | `python3 scripts/docs-site/build-docs-site.py` |
+| `docs-site/docs-site-template.html` | 文档站页面模板（侧栏导航、页内目录、深浅色主题） | 由 `build-docs-site.py` 读取 |
+
+## 四、部署脚本常见问题
 
 | 现象 | 处理 |
 | --- | --- |
@@ -171,4 +201,6 @@ sudo bash scripts/install-rerank.sh --model BAAI/bge-reranker-base --engine opti
 
 ## 相关文档
 
-- 主文档：[../README.md](../README.md)（阶段一：虚机与系统准备）
+- 主文档：[../README.md](../README.md)（部署方案、阶段一～六与验收清单）
+- 部署执行记录：[../docs/deployment/deployment-log.md](../docs/deployment/deployment-log.md)
+- 阶段总结：[../docs/deployment/stage-summary.md](../docs/deployment/stage-summary.md)

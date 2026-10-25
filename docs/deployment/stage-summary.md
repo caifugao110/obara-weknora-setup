@@ -1,7 +1,7 @@
 # OBARA 知识库系统 — 阶段总结（截至 2026-10-25）
 
 > 面向汇报与交接的**精简阶段总结**，覆盖已完成的阶段一～阶段五。
-> 命令级执行细节见 [`docs/deployment-log.md`](deployment-log.md)，完整方案与验收清单见顶层 [`README.md`](../README.md)。
+> 命令级执行细节见 [`docs/deployment-log.md`](deployment-log.md)，完整方案与验收清单见顶层 [`README.md`](../../README.md)。
 >
 > 最后更新：2026-10-25（阶段五完成）
 
@@ -15,7 +15,7 @@
 [✅] 阶段三  Ollama + 本地向量模型      —— 完成（服务与模型可用，A/B 定稿待导库前完成）
 [✅] 阶段四  DeepSeek 对话模型配置      —— 完成
 [✅] 阶段五  本地 Rerank 重排服务       —— 完成（服务 + 注册 + 端到端验证通过）
-[⏸️] 阶段六  知识库初始化与验收         —— 待开始
+[🔄] 阶段六  知识库初始化与验收         —— 链路已通；扁平格式重导待决策
 ```
 
 | 阶段 | 交付结果 | 状态 |
@@ -25,6 +25,7 @@
 | 三、Ollama | `0.17.5` systemd 服务，`bge-m3` 1024 维向量可用，容器到宿主连通已验证 | ✅ |
 | 四、DeepSeek | `deepseek-flash`（快速问答）+ `deepseek-v4-pro`（智能推理）已注册且 `active`，上游调用验证通过；Embedding 指向本机 `bge-m3` | ✅ |
 | 五、Rerank | `infinity 0.0.78-cpu` 容器 `weknora-rerank`（7997）+ `bge-reranker-v2-m3`，已注册且端到端调用通过（`ok=true`，1.3s / 3 条候选） | ✅ |
+| 六、知识库 | 知识库与「焊枪选型助手」智能体已建好并完成端到端验收（随机抽样 10/10、延迟 20 s）；发现 `num_ctx=511` 截断缺陷，已给出扁平重导方案，全量导入待决策 | 🔄 |
 
 ---
 
@@ -41,7 +42,7 @@
 
 **关键处置**：`daemon.json` 配置多加速器降级、`live-restore`、`max-concurrent-downloads: 16`（单流限速 200KB/s → 多流约 2.5MB/s）；普通用户免 sudo；`hello-world` 拉取通过。
 
-**交付脚本**：`scripts/install-docker.sh`、`scripts/fix-docker-env.sh`、`scripts/configure-mirrors.sh`
+**交付脚本**：`scripts/deploy/install-docker.sh`、`scripts/deploy/fix-docker-env.sh`、`scripts/deploy/configure-mirrors.sh`
 
 ---
 
@@ -78,7 +79,7 @@
 
 > 跨语种（0.73~0.96）与无关句（0.32）区分度明显，`bge-m3` 满足"中文提问命中英文/日文原版规范"的要求。
 
-**交付脚本**：`scripts/install-ollama.sh`（幂等，多下载源自动回退）
+**交付脚本**：`scripts/deploy/install-ollama.sh`（幂等，多下载源自动回退）
 
 ---
 
@@ -96,7 +97,7 @@
 | 模型状态 | 三个均 `active` |
 | 密钥存放 | `/opt/obara/weknora/.secrets/deepseek.env`（700/600，属主 root），库中为 AES 加密密文 |
 | 上游验证 | `deepseek-flash` 0.99~1.47s、`deepseek-v4-pro` 1.23~1.40s、`bge-m3` 0.48~6.93s（冷加载） |
-| 交付脚本 | `scripts/configure-deepseek.sh`（幂等） |
+| 交付脚本 | `scripts/deploy/configure-deepseek.sh`（幂等） |
 
 **三个关键坑**
 
@@ -125,7 +126,7 @@
 | 权重目录 | `/opt/obara/rerank-models/models/bge-reranker-v2-m3`（2.2 GB，只读挂载 + 离线加载） |
 | WeKnora 注册 | `bge-reranker-v2-m3`：`type=Rerank` / `source=remote` / `provider=generic`，`active` |
 | 端到端验证 | `/models/{id}/debug` → `ok=true`，1.3 s（3 条候选） |
-| 交付脚本 | `scripts/install-rerank.sh`（幂等、可断点续传、可重复执行） |
+| 交付脚本 | `scripts/deploy/install-rerank.sh`（幂等、可断点续传、可重复执行） |
 
 **排序质量**（中文查询「电极的使用寿命是多久？」）：相关片段 **0.9926** > 英文相关 0.6336 > 无关句 **0.0000**；候选池扩到 50 条时 Top1 仍稳定命中相关片段。
 
@@ -144,28 +145,66 @@
 
 | 文件 | 用途 |
 | --- | --- |
-| `scripts/install-docker.sh` | 阶段一：Docker CE + Compose 安装与调优 |
-| `scripts/fix-docker-env.sh` | 阶段一：APT 源 / daemon 配置 / 加速器修复 |
-| `scripts/configure-mirrors.sh` | 阶段一：镜像加速器自动探测 |
-| `scripts/install-ollama.sh` | 阶段三：Ollama 服务安装 + Embedding 模型拉取 |
-| `scripts/configure-deepseek.sh` | 阶段四：注册 DeepSeek 对话模型与本地 Ollama 向量模型，并做上游连通性验证（幂等） |
-| `scripts/install-rerank.sh` | 阶段五：部署本地 Rerank 服务容器（infinity）并注册到 WeKnora，含权重下载、就绪判定与端到端验证（幂等） |
-| `docs/deployment-log.md` | 五个阶段的实际执行记录、踩坑与运维手册 |
-| `docs/stage-summary.md` | 本文件：阶段精简总结 |
+| `scripts/deploy/install-docker.sh` | 阶段一：Docker CE + Compose 安装与调优 |
+| `scripts/deploy/fix-docker-env.sh` | 阶段一：APT 源 / daemon 配置 / 加速器修复 |
+| `scripts/deploy/configure-mirrors.sh` | 阶段一：镜像加速器自动探测 |
+| `scripts/deploy/install-ollama.sh` | 阶段三：Ollama 服务安装 + Embedding 模型拉取 |
+| `scripts/deploy/configure-deepseek.sh` | 阶段四：注册 DeepSeek 对话模型与本地 Ollama 向量模型，并做上游连通性验证（幂等） |
+| `scripts/deploy/install-rerank.sh` | 阶段五：部署本地 Rerank 服务容器（infinity）并注册到 WeKnora，含权重下载、就绪判定与端到端验证（幂等） |
+| `scripts/kb/init-welding-gun-kb.sh` | 阶段六：建库 + 绑定模型 + 导入文档 + 创建受管智能体 + 写入检索参数（幂等，支持 `--no-wait` / `--status`） |
+| `scripts/kb/verify-welding-gun-kb.sh` | 阶段六：端到端验收，抽取真实记录自动生成提问并按容差规则回溯校验答案 |
+| `scripts/kb/build-flat-kb.py` | 阶段六：把宽表重建为"一行一段"自然语言短句，消除 `num_ctx=511` 截断 |
+| `docs/deployment/deployment-log.md` | 各阶段的实际执行记录、踩坑与运维手册 |
+| `docs/deployment/stage-summary.md` | 本文件：阶段精简总结 |
 
 ---
 
-## 8. 下一步计划
+## 8. 阶段六：知识库初始化与小样本验收
+
+**执行日期**：2026-10-25
+
+| 项 | 结果 |
+| --- | --- |
+| 知识库 | `焊枪选型知识库`，绑定 `bge-m3`；检索参数 `embedding_top_k=20 / rerank_top_k=8 / rerank_threshold=0.3 / vector_threshold=0.15` |
+| 智能体 | `焊枪选型助手`，绑定 `deepseek-flash` + `bge-reranker-v2-m3`，答复约束提示词注入 `system_prompt` |
+| 已解析 | `X2C-V3-C`、`X2C-V3-X` 完成；`X2C-V2-C`、`X2C-V2-X`、`X2C-C`、`X2C-X` 四个已暂停（`scripts/kb/init-welding-gun-kb.sh --pause`），文件保留，随时 `--resume` 恢复 |
+
+**阻塞性质量问题：`num_ctx=511` 截断**
+
+| 指标 | 数值 |
+| --- | --- |
+| Excel 分片平均长度 | 745 字符 |
+| 超过 511 字符的比例 | 99.9% |
+| 「图号」落在分片的位置 | 第 562 字符 |
+
+`bge-m3` 只取前 511 token，**图号等数据字段几乎全部没进向量**；用图号本身检索，Top4 全是别的图号。
+
+**A/B 验收（数据集 X2C-V3-C，148 条真实记录）**
+
+| 知识表示 | 分片长度 | 随机抽样正确率 | 固定 5 题 | 平均延迟 |
+| --- | --- | --- | --- | --- |
+| Excel → Markdown 表格 | 745 字符（99.9% 截断） | 11/13 = 85% | 5/5 | 36 s |
+| 一行一段「字段：值」 | ≤ 351 字符（不截断） | **10/10 = 100%** | 5/5 | **20 s** |
+
+失败用例根因是**候选集漏召**（正确记录未进入 Top-N），不是模型编造；答案的图号本身真实存在且客户名匹配。
+扁平行把端到端延迟压低约 45%，且彻底消除截断隐患，**推荐按扁平格式全量重导**。
+
+详细过程、踩坑与命令见 [`docs/deployment-log.md`](deployment-log.md) 第六章。
+
+---
+
+## 9. 下一步计划
 
 | 顺序 | 事项 | 说明 |
 | --- | --- | --- |
-| 1 | **Embedding A/B 定稿** | 拉取 `embeddinggemma:300m`，建 `AB-bge-m3` / `AB-gemma300m` 两个测试库导入同一批 20~30 份文档，必须含"中文提问命中英文/日文原版"用例；**换 Embedding 需全量重向量化，定稿后再导全量**（阻塞全量导库） |
-| 2 | 阶段六：知识库验收 | 建库（`embedding_model_id` 绑 `bge-m3`）→ 导入试点文档 → 建 Agent（`chat_model_id` 绑 `deepseek-flash`）→ 验证解析、向量检索、AI 溯源问答与跨语种召回；**Rerank 建议候选池 ≤ 20、`rerank_top_k=8`** |
-| 3 | Rerank 保留与否的决策 | 阶段六记录"开 / 关 rerank"两组 P50 与召回质量差异；若 CPU 延迟不可接受，先压候选池、再考虑给容器加核或二期 GPU 节点 |
+| 1 | **扁平格式全量重导**（暂缓，数据已就绪） | `03-flat-knowledge/*.md`（18,689 行）随时可用，决定先用表格原样；需要时按 `docs/deployment/deployment-log.md` §6.6 的命令重建新库即可，现有库保留做对照 |
+| 2 | Embedding A/B 定稿 | 若后续要换 Embedding 需全量重向量化，务必在重导前定稿；现阶段继续沿用 `bge-m3` |
+| 3 | 扩大验收样本 | 全量导入后按 `--cases 20` 以上规模复验，并补"跨枪型不串台""无匹配时输出提示"两类边界用例 |
+| 4 | Rerank 保留与否的决策 | 记录"开 / 关 rerank"两组的 P50 与召回质量差异；当前扁平库延迟已降到 20 s，可先压候选池观察 |
 
 ---
 
-## 9. 遗留事项
+## 10. 遗留事项
 
 - [ ] **Embedding A/B 定稿**（阻塞全量导库）
 - [ ] **修改初始管理员密码**：阶段五为自动化注册在库内重置为 `Ob@raxGUgbyGr`，**需改为团队内部凭据并妥善保管**

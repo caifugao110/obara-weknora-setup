@@ -4,10 +4,10 @@
 # 适用于 OBARA 知识库系统部署 —— 阶段四
 #
 # 用法：
-#   sudo bash scripts/configure-deepseek.sh                     # 密钥取自 .secrets 或环境变量
-#   sudo bash scripts/configure-deepseek.sh --api-key sk-xxxxx   # 显式传入密钥
-#   sudo bash scripts/configure-deepseek.sh --skip-verify       # 只注册，不做上游连通性验证
-#   sudo bash scripts/configure-deepseek.sh --base-url http://127.0.0.1:8080 \
+#   sudo bash scripts/deploy/configure-deepseek.sh                     # 密钥取自 .secrets 或环境变量
+#   sudo bash scripts/deploy/configure-deepseek.sh --api-key sk-xxxxx   # 显式传入密钥
+#   sudo bash scripts/deploy/configure-deepseek.sh --skip-verify       # 只注册，不做上游连通性验证
+#   sudo bash scripts/deploy/configure-deepseek.sh --base-url http://127.0.0.1:8080 \
 #        --admin-email admin@obara.local --admin-password 'xxxxx'
 #
 # 特性：

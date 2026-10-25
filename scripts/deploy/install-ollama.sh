@@ -4,10 +4,10 @@
 # 适用于 OBARA 知识库系统部署 —— 阶段三
 #
 # 用法：
-#   sudo bash scripts/install-ollama.sh                       # 安装并拉取默认模型 bge-m3
-#   sudo bash scripts/install-ollama.sh --models "bge-m3 embeddinggemma:300m"
-#   sudo bash scripts/install-ollama.sh --skip-models         # 只装服务，不拉模型
-#   sudo bash scripts/install-ollama.sh --models-dir /opt/ollama/models
+#   sudo bash scripts/deploy/install-ollama.sh                       # 安装并拉取默认模型 bge-m3
+#   sudo bash scripts/deploy/install-ollama.sh --models "bge-m3 embeddinggemma:300m"
+#   sudo bash scripts/deploy/install-ollama.sh --skip-models         # 只装服务，不拉模型
+#   sudo bash scripts/deploy/install-ollama.sh --models-dir /opt/ollama/models
 #
 # 特性：幂等，可重复执行；已安装且版本满足要求时会跳过重装。
 #
@@ -232,4 +232,4 @@ echo "监听地址：${OLLAMA_LISTEN}"
 echo "模型目录：${MODELS_DIR}"
 echo "服务状态：$(systemctl is-active ollama.service) / 开机自启：$(systemctl is-enabled ollama.service)"
 echo
-echo "提示：WeKnora 容器访问本机 Ollama 需使用宿主地址，详见 docs/deployment-log.md 阶段三"
+echo "提示：WeKnora 容器访问本机 Ollama 需使用宿主地址，详见 docs/deployment/deployment-log.md 阶段三"

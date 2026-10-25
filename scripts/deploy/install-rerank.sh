@@ -14,14 +14,14 @@
 #   -> {"results":[{"index":..,"relevance_score":..}], ...}
 #
 # 用法：
-#   sudo bash scripts/install-rerank.sh                              # 下载模型 + 起容器 + 注册 + 验证
-#   sudo bash scripts/install-rerank.sh --model BAAI/bge-reranker-v2-m3
-#   sudo bash scripts/install-rerank.sh --model-dir /path/to/local/model
-#   sudo bash scripts/install-rerank.sh --no-register                # 只起容器，不注册到 WeKnora
-#   sudo bash scripts/install-rerank.sh --skip-verify                # 注册但跳过 WeKnora 侧调用验证
-#   sudo bash scripts/install-rerank.sh --admin-password '<后台登录密码>'  # 非交互式注册
-#   sudo bash scripts/install-rerank.sh --recreate                   # 重建容器（换模型 / 改资源限制时用）
-#   sudo bash scripts/install-rerank.sh --recreate --cpus 6 --memory 4g --batch-size 8
+#   sudo bash scripts/deploy/install-rerank.sh                              # 下载模型 + 起容器 + 注册 + 验证
+#   sudo bash scripts/deploy/install-rerank.sh --model BAAI/bge-reranker-v2-m3
+#   sudo bash scripts/deploy/install-rerank.sh --model-dir /path/to/local/model
+#   sudo bash scripts/deploy/install-rerank.sh --no-register                # 只起容器，不注册到 WeKnora
+#   sudo bash scripts/deploy/install-rerank.sh --skip-verify                # 注册但跳过 WeKnora 侧调用验证
+#   sudo bash scripts/deploy/install-rerank.sh --admin-password '<后台登录密码>'  # 非交互式注册
+#   sudo bash scripts/deploy/install-rerank.sh --recreate                   # 重建容器（换模型 / 改资源限制时用）
+#   sudo bash scripts/deploy/install-rerank.sh --recreate --cpus 6 --memory 4g --batch-size 8
 #
 # 特性：
 #   - 幂等：权重已完整则跳过下载；容器存在则跳过创建；WeKnora 模型按 name 已存在则 PUT 更新
@@ -51,7 +51,7 @@ WEKNORA_DIR="${WEKNORA_DIR:-/opt/obara/weknora}"
 BASE_URL="${BASE_URL:-http://127.0.0.1:8080}"
 ADMIN_EMAIL="${ADMIN_EMAIL:-admin@obara.local}"
 ADMIN_USER="${ADMIN_USER:-admin}"
-ADMIN_PASSWORD="${ADMIN_PASSWORD:-}"   # 也可通过环境变量传入：sudo ADMIN_PASSWORD='xxx' bash scripts/install-rerank.sh
+ADMIN_PASSWORD="${ADMIN_PASSWORD:-}"   # 也可通过环境变量传入：sudo ADMIN_PASSWORD='xxx' bash scripts/deploy/install-rerank.sh
 HOST_IP="${HOST_IP:-}"
 NO_REGISTER="false"
 SKIP_VERIFY="false"

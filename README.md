@@ -2,7 +2,7 @@
 
 [![Docs Site](https://github.com/caifugao110/obara-weknora-setup/actions/workflows/docs-site.yml/badge.svg)](https://github.com/caifugao110/obara-weknora-setup/actions/workflows/docs-site.yml)
 
-> 📖 **在线文档站**：<https://caifugao110.github.io/obara-weknora-setup/> —— 本仓库所有文档（README + `docs/` + 脚本文档）会被自动汇总成一个可检索、带目录的单页网站；**README 或 `docs/` 一有改动，GitHub Actions 会自动重建并发布**，详见 [9.1 文档站自动生成](#91-文档站自动生成)。
+> 📖 **在线文档站**：<https://caifugao110.github.io/obara-weknora-setup/> —— 本仓库所有文档（README + `docs/` + 脚本文档）会被自动汇总成一个可检索、带目录的单页网站；**README 或 `docs/` 一有改动，GitHub Actions 会自动重建并发布**，详见 [9.3 文档站自动生成](#93-文档站自动生成)。
 > 基于腾讯开源项目 [WeKnora](https://github.com/Tencent/WeKnora)（MIT 协议）搭建的企业内部知识库系统，用于公司内部文档、规范、技术资料的沉淀、语义检索与 AI RAG 智能问答。
 
 | 项目信息 | 内容 |
@@ -113,7 +113,7 @@
 
 > 以下为整体流程概览，每一步的详细操作将在后续章节/文档中补充完善。
 >
-> 📄 **阶段一（Docker 环境）、阶段二（WeKnora 部署）与阶段三（Ollama 本地向量模型）的已实际执行记录**——含具体命令、踩坑原因与验证结果——见 [`docs/deployment-log.md`](docs/deployment-log.md)。
+> 📄 **阶段一（Docker 环境）、阶段二（WeKnora 部署）与阶段三（Ollama 本地向量模型）的已实际执行记录**——含具体命令、踩坑原因与验证结果——见 [`docs/deployment/deployment-log.md`](docs/deployment/deployment-log.md)。
 
 ### 阶段一：虚机与系统准备（信息课 + 业务侧）
 
@@ -151,11 +151,11 @@ sudo apt update && sudo apt upgrade -y
 
 #### 1.2 安装 Docker 环境
 
-推荐使用仓库自带脚本，自动完成 GPG 公钥、APT 源、镜像加速器和日志轮转配置。脚本详细说明见 [scripts/deployment-scripts.md](scripts/deployment-scripts.md)。
+推荐使用仓库自带脚本，自动完成 GPG 公钥、APT 源、镜像加速器和日志轮转配置。脚本详细说明见 [scripts/README.md](scripts/README.md)。
 
 ```bash
 # 1) 安装 Docker CE + Compose 插件（清华源优先，失败回退官方源）
-sudo bash scripts/install-docker.sh
+sudo bash scripts/deploy/install-docker.sh
 
 # 2) 使 docker 组生效：重新登录，或当前终端执行
 newgrp docker
@@ -171,7 +171,7 @@ docker --version && docker compose version
 - Docker Hub 直连不通，需重新探测镜像加速器
 
 ```bash
-sudo bash scripts/fix-docker-env.sh
+sudo bash scripts/deploy/fix-docker-env.sh
 ```
 
 > 不使用脚本时，可手工执行 `curl -fsSL https://get.docker.com | sh` 安装，再自行配置 `/etc/docker/daemon.json` 并 `sudo systemctl restart docker`。
@@ -266,15 +266,15 @@ curl -I http://localhost:8080   # 端口以 .env 中实际配置为准
 | 启用服务 | `app`、`frontend`、`docreader`、`postgres`(paradedb)、`redis` 共 5 个 |
 | 访问地址 | `http://192.168.227.133`，健康检查 `curl http://localhost:8080/health` → `{"status":"ok"}` |
 
-> 📄 镜像清单、`.env` 关键项、踩坑与运维命令的完整记录见 [`docs/deployment-log.md`](docs/deployment-log.md)。
+> 📄 镜像清单、`.env` 关键项、踩坑与运维命令的完整记录见 [`docs/deployment/deployment-log.md`](docs/deployment/deployment-log.md)。
 
 ### 阶段三：部署本地向量模型（Ollama）
 
 ```bash
 # 方式 A（本仓脚本，推荐）：安装 Ollama 服务 + 拉取模型，幂等可重跑
-sudo bash scripts/install-ollama.sh                                  # 默认拉取 bge-m3
-sudo bash scripts/install-ollama.sh --models "bge-m3 embeddinggemma:300m"   # A/B 前补齐候选
-sudo bash scripts/install-ollama.sh --skip-models                    # 只装服务
+sudo bash scripts/deploy/install-ollama.sh                                  # 默认拉取 bge-m3
+sudo bash scripts/deploy/install-ollama.sh --models "bge-m3 embeddinggemma:300m"   # A/B 前补齐候选
+sudo bash scripts/deploy/install-ollama.sh --skip-models                    # 只装服务
 
 # 方式 B（官方原命令，需直连 GitHub）：ollama.com/install.sh 会 307 跳到 GitHub Release，
 #        本机 GitHub 直连超时，故作为备选，脚本内已自动尝试各下载源
@@ -304,7 +304,7 @@ curl http://localhost:11434/api/embeddings -d '{"model":"bge-m3","prompt":"测�
 | 未拉取 | `embeddinggemma:300m`（A/B 候选项，导库前按需补拉，见下方 A/B 流程） |
 
 > 选型依据见 2.1 节；`nomic-embed-text`（768 维）中文效果偏弱，`bge-large-zh-v1.5` 仅支持 512 token 且仅中文，均不采用。
-> 📄 执行过程、踩坑与完整验证数据见 [`docs/deployment-log.md` 三、阶段三](docs/deployment-log.md)。
+> 📄 执行过程、踩坑与完整验证数据见 [`docs/deployment/deployment-log.md` 三、阶段三](docs/deployment/deployment-log.md)。
 
 **⚠️ 导库前必须完成 A/B 定稿（换 Embedding = 全量重向量化，代价高）**
 
@@ -318,11 +318,11 @@ curl http://localhost:11434/api/embeddings -d '{"model":"bge-m3","prompt":"测�
 
 ```bash
 # 一键配置（幂等，可重复执行）：注册 DeepSeek 对话模型 + 本地 Ollama 向量模型，并验证连通性
-sudo DEEPSEEK_API_KEY='sk-xxxxx' bash scripts/configure-deepseek.sh
+sudo DEEPSEEK_API_KEY='sk-xxxxx' bash scripts/deploy/configure-deepseek.sh
 
 # 常用参数
-sudo bash scripts/configure-deepseek.sh --api-key 'sk-xxxxx'      # 显式传入密钥
-sudo bash scripts/configure-deepseek.sh --skip-verify          # 只注册，不做上游调用
+sudo bash scripts/deploy/configure-deepseek.sh --api-key 'sk-xxxxx'      # 显式传入密钥
+sudo bash scripts/deploy/configure-deepseek.sh --skip-verify          # 只注册，不做上游调用
 ```
 
 **手工配置要点**（在管理后台 → 模型管理 → 添加模型）：
@@ -377,9 +377,9 @@ sudo bash scripts/configure-deepseek.sh --skip-verify          # 只注册，不
 **一键部署（含注册与验证）**
 
 ```bash
-sudo bash scripts/install-rerank.sh                                  # 下载模型 → 起容器 → 注册 → 验证
-sudo bash scripts/install-rerank.sh --no-register                    # 只部署服务
-sudo bash scripts/install-rerank.sh --recreate --cpus 6 --memory 4g  # 调资源限制后重建
+sudo bash scripts/deploy/install-rerank.sh                                  # 下载模型 → 起容器 → 注册 → 验证
+sudo bash scripts/deploy/install-rerank.sh --no-register                    # 只部署服务
+sudo bash scripts/deploy/install-rerank.sh --recreate --cpus 6 --memory 4g  # 调资源限制后重建
 ```
 
 1. 首次执行需临时出站 HF 权限下载权重（脚本自动选 `hf-mirror.com` → `huggingface.co`，支持断点续传；拉完即收紧）
@@ -456,12 +456,12 @@ curl -s -X POST http://127.0.0.1:7997/rerank -H 'Content-Type: application/json'
 | 阶段 | 内容 | 状态 |
 | --- | --- | --- |
 | 1. 需求评审 & 资源开通 | 方案对齐、虚机开通、网络与账号对接 | ⏳ 进行中（虚机配置已确认） |
-| 2. 试点部署与调试 | 系统部署、导入设计规范、权限、RAG、模型连通调试 | ⏳ 进行中（Docker 环境 + WeKnora v0.8.3 + Ollama/`bge-m3` + DeepSeek 对话模型 + 本地 Rerank 服务已完成，见 [`docs/deployment-log.md`](docs/deployment-log.md)） |
+| 2. 试点部署与调试 | 系统部署、导入设计规范、权限、RAG、模型连通调试 | ⏳ 进行中（Docker 环境 + WeKnora v0.8.3 + Ollama/`bge-m3` + DeepSeek 对话模型 + 本地 Rerank 服务已完成，见 [`docs/deployment/deployment-log.md`](docs/deployment/deployment-log.md)） |
 | 3. 部门灰度试用 | 内部收集反馈、问题整改、安全复测 | ⏸️ 待开始 |
 | 4. 试点验收 | 联合信息课评审稳定性、安全、审计能力，出具试点报告 | ⏸️ 待开始 |
 | 5. 二期推广 | 评估扩容（含 GPU 推理节点、公有 API 许可），开放至全公司 | ⏸️ 视试点结果 |
 
-> 📌 阶段一～阶段五的交付结果、实测数据与下一步计划汇总见 [`docs/stage-summary.md`](docs/stage-summary.md)。
+> 📌 阶段一～阶段五的交付结果、实测数据与下一步计划汇总见 [`docs/deployment/stage-summary.md`](docs/deployment/stage-summary.md)。
 
 ---
 
@@ -493,20 +493,52 @@ curl -s -X POST http://127.0.0.1:7997/rerank -H 'Content-Type: application/json'
 
 ## 9. 仓库文件说明
 
+仓库按 **部署流程** 与 **非部署流程** 分目录组织：
+
+```text
+obara-weknora-setup/
+├── README.md                        # 主文档：方案、部署步骤、验收清单
+├── docs/
+│   ├── README.md                    # 文档导航（部署文档 / 非部署资料）
+│   └── deployment/                  # 【部署流程】执行记录与阶段总结
+│       ├── deployment-log.md
+│       └── stage-summary.md
+├── scripts/
+│   ├── README.md                    # 脚本索引（部署 / 非部署）
+│   ├── deploy/                      # 【部署流程】阶段一～五环境与组件部署
+│   ├── kb/                          # 【非部署】阶段六知识库初始化、验收、数据转换
+│   └── docs-site/                   # 【非部署】文档站构建
+├── welding-gun-selection-kb/        # 【非部署】知识库源数据与答复提示词
+├── .github/workflows/docs-site.yml  # 【非部署】文档站自动发布
+├── site/                            # 构建产物（自动生成，不入库）
+└── LICENSE
+```
+
+### 9.1 部署流程文件
+
 | 文件 | 用途 |
 | --- | --- |
 | `README.md` | 部署方案、实施计划与验收清单（本文件） |
-| `docs/deployment-log.md` | 阶段一（Docker 环境）、阶段二（WeKnora）与阶段三（Ollama）的**实际执行记录**：环境基线、具体命令、踩坑根因、验证结果、运维与备份手册 |
-| `docs/stage-summary.md` | 阶段一～阶段三的**精简阶段总结**（进度、交付结果、实测数据、下一步与遗留事项），适合汇报与交接 |
-| `scripts/install-docker.sh` | 一键安装 Docker CE + Compose 插件，配置镜像加速器、日志轮转并验证 |
-| `scripts/fix-docker-env.sh` | 修复 APT 源域名、重新探测加速器、重启 Docker 使 `daemon.json` 生效 |
-| `scripts/configure-mirrors.sh` | 国内镜像加速器自动探测与配置（默认只写配置，`--apply` 重启生效） |
-| `scripts/install-ollama.sh` | 阶段三：安装 Ollama 服务（systemd）并拉取 Embedding 模型，内置多下载源回退 |
-| `scripts/configure-deepseek.sh` | 阶段四：注册 DeepSeek 对话模型（快速问答 / 智能推理）与本地 Ollama 向量模型，并做上游连通性验证 |
-| `scripts/deployment-scripts.md` | 脚本的使用前提、执行步骤与常见问题 |
-| `scripts/install-rerank.sh` | 阶段五：部署本地 Rerank 服务（infinity + `bge-reranker-v2-m3`）并注册到 WeKnora |
-| `scripts/build-docs-site.py` | 文档站生成器：扫描仓库内 Markdown → 渲染为单页静态站点（输出到 `site/`） |
-| `scripts/docs-site-template.html` | 文档站页面模板（侧栏导航、全站搜索、页内目录、深浅色主题） |
+| `docs/deployment/deployment-log.md` | 阶段一～六的**实际执行记录**：环境基线、具体命令、踩坑根因、验证结果、运维与备份手册 |
+| `docs/deployment/stage-summary.md` | 阶段一～六的**精简阶段总结**（进度、交付结果、实测数据、下一步与遗留事项），适合汇报与交接 |
+| `scripts/README.md` | 脚本索引：部署脚本的使用前提、执行步骤与常见问题 |
+| `scripts/deploy/install-docker.sh` | 一键安装 Docker CE + Compose 插件，配置镜像加速器、日志轮转并验证 |
+| `scripts/deploy/fix-docker-env.sh` | 修复 APT 源域名、重新探测加速器、重启 Docker 使 `daemon.json` 生效 |
+| `scripts/deploy/configure-mirrors.sh` | 国内镜像加速器自动探测与配置（默认只写配置，`--apply` 重启生效） |
+| `scripts/deploy/install-ollama.sh` | 阶段三：安装 Ollama 服务（systemd）并拉取 Embedding 模型，内置多下载源回退 |
+| `scripts/deploy/configure-deepseek.sh` | 阶段四：注册 DeepSeek 对话模型（快速问答 / 智能推理）与本地 Ollama 向量模型，并做上游连通性验证 |
+| `scripts/deploy/install-rerank.sh` | 阶段五：部署本地 Rerank 服务（infinity + `bge-reranker-v2-m3`）并注册到 WeKnora |
+
+### 9.2 非部署流程文件
+
+| 文件 | 用途 |
+| --- | --- |
+| `scripts/kb/init-welding-gun-kb.sh` | 阶段六：建库 + 绑定模型 + 导入文档 + 创建受管智能体 + 写入检索参数（幂等，支持 `--no-wait` / `--pause` / `--resume` / `--status`） |
+| `scripts/kb/verify-welding-gun-kb.sh` | 阶段六：端到端验收，抽取真实记录自动生成提问并核对图号 |
+| `scripts/kb/build-flat-kb.py` | 阶段六：把宽表重建为「一行一段」自然语言短句，规避 `num_ctx=511` 截断 |
+| `scripts/docs-site/build-docs-site.py` | 文档站生成器：扫描仓库内 Markdown → 渲染为单页静态站点（输出到 `site/`） |
+| `scripts/docs-site/docs-site-template.html` | 文档站页面模板（侧栏导航、页内目录、深浅色主题） |
+| `welding-gun-selection-kb/` | 知识库源数据：6 个 Excel、答复约束提示词与概览（扁平知识文件由 `build-flat-kb.py` 生成，不入库） |
 | `.github/workflows/docs-site.yml` | GitHub Actions：文档变更时自动构建文档站并发布到 GitHub Pages |
 | `site/` | 构建产物（自动生成，**不入库**） |
 | `LICENSE` | MIT 开源协议 |
@@ -514,26 +546,26 @@ curl -s -X POST http://127.0.0.1:7997/rerank -H 'Content-Type: application/json'
 脚本速查：
 
 ```bash
-sudo bash scripts/install-docker.sh      # 首次安装
-sudo bash scripts/fix-docker-env.sh      # 配置未生效 / 源或加速器异常
-sudo bash scripts/configure-mirrors.sh   # 重新探测国内镜像加速器并写入配置
-sudo bash scripts/install-ollama.sh      # 安装 Ollama 并拉取向量模型（阶段三）
-sudo DEEPSEEK_API_KEY='sk-xxxxx' bash scripts/configure-deepseek.sh   # 配置对话模型（阶段四）
+sudo bash scripts/deploy/install-docker.sh      # 首次安装
+sudo bash scripts/deploy/fix-docker-env.sh      # 配置未生效 / 源或加速器异常
+sudo bash scripts/deploy/configure-mirrors.sh   # 重新探测国内镜像加速器并写入配置
+sudo bash scripts/deploy/install-ollama.sh      # 安装 Ollama 并拉取向量模型（阶段三）
+sudo DEEPSEEK_API_KEY='sk-xxxxx' bash scripts/deploy/configure-deepseek.sh   # 配置对话模型（阶段四）
 ```
 
-### 9.1 文档站自动生成
+### 9.3 文档站自动生成
 
-仓库内所有 Markdown（顶层 `README.md`、`docs/**/*.md`、`scripts/*.md`）会由 GitHub Actions 汇总成一个单页文档站：
+仓库内所有 Markdown（含 `README.md`、`docs/`、`scripts/`、`welding-gun-selection-kb/` 等任意目录下的 `.md`）会由 GitHub Actions 汇总成一个单页文档站：
 
-- **触发时机**：`README.md` / `docs/**` / `scripts/*.md` 发生变更并推送到 `main` 时自动重建；也可在 Actions 页面手动触发（另设每周一兜底重建）。Pull Request 只构建校验，不发布。
+- **触发时机**：任意 `.md` 文档发生变更并推送到 `main` 时自动重建；也可在 Actions 页面手动触发（另设每周一兜底重建）。Pull Request 只构建校验，不发布。
 - **发布位置**：GitHub Pages，地址 <https://caifugao110.github.io/obara-weknora-setup/>（首次需在仓库 *Settings → Pages → Build and deployment* 把 Source 设为 **GitHub Actions**）。
-- **页面能力**：左侧分组目录 + 关键词全站搜索（`/` 聚焦）、右侧页内目录滚动高亮、代码高亮与一键复制、深浅色主题（`T` 切换）、响应式与打印友好；文档内的 `.md` 互链自动转成站内跳转，支持 `#/docs/xxx.md` 深链。
+- **页面能力**：左侧分组目录、右侧页内目录滚动高亮、代码高亮与一键复制、深浅色主题（`T` 切换）、响应式与打印友好；文档内的 `.md` 互链自动转成站内跳转，支持 `#/docs/xxx.md` 深链。
 
 本地预览 / 调试：
 
 ```bash
 pip install markdown Pygments
-python3 scripts/build-docs-site.py            # 生成到 ./site
+python3 scripts/docs-site/build-docs-site.py  # 生成到 ./site
 python3 -m http.server 8000 -d site           # 打开 http://localhost:8000
 ```
 

@@ -28,3 +28,28 @@ temp/
 
 # 自动生成的文档站产物（由 GitHub Actions 构建发布）
 site/
+public/
+
+# 知识库派生数据（由 scripts/kb/build-flat-kb.py 从 Postgres chunks 重建）
+welding-gun-selection-kb/03-flat-knowledge/
+
+# 密钥目录（服务器端 .secrets/ 的本地备份）
+.secrets/
+
+# Python 运行产物与虚拟环境
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+
+# Node 依赖（文档站构建不需要，避免误提交）
+node_modules/
+
+# 其他临时产物
+*.tmp
+.history/
+.fleet/

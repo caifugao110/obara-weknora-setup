@@ -4,16 +4,16 @@
 build-docs-site.py — 将仓库内的 Markdown 文档构建成一个精美的单页文档站。
 
 特性：
-  * 自动收集 README.md / docs/**/*.md / scripts/**/*.md 等文档
+  * 自动收集仓库内全部 Markdown（**/*.md，自动排除 .git / site / node_modules 等）
   * Markdown → HTML（表格、任务列表、脚注、代码高亮），自动生成页内目录
   * 仓库内的 .md 互链自动改写为站内路由，图片等资源复制到输出目录
   * 输出自包含静态页面（site/index.html + assets/），可直接双击打开或部署
   * 从 git 历史读取每篇文档的最后更新时间
 
 用法：
-  python3 scripts/build-docs-site.py                     # 默认输出到 ./site
-  python3 scripts/build-docs-site.py --output public
-  python3 scripts/build-docs-site.py --exclude scripts
+  python3 scripts/docs-site/build-docs-site.py           # 默认输出到 ./site
+  python3 scripts/docs-site/build-docs-site.py --output public
+  python3 scripts/docs-site/build-docs-site.py --exclude scripts
 
 依赖：markdown（必需），Pygments（可选，用于代码高亮）
   pip install markdown Pygments
@@ -54,12 +54,6 @@ except ImportError:
 # --------------------------------------------------------------------------- #
 # 基础工具
 # --------------------------------------------------------------------------- #
-INLINE_MD_RE = re.compile(
-    r"!\[[^\]]*\]\([^)]*\)|"          # 图片
-    r"\[([^\]]*)\]\([^)]*\)|"         # 链接
-    r"`([^`]*)`|"                     # 行内代码
-    r"(\*\*|__|\*|_|~~)"              # 强调
-)
 CN_RE = re.compile(r"[一-鿿]")
 
 
@@ -75,13 +69,12 @@ def slugify(value: str, separator: str = "-") -> str:
 
 def strip_md(text: str) -> str:
     """去掉行内 Markdown 标记，用于生成标题与摘要。"""
-    def _sub(m: re.Match) -> str:
-        if m.group(1):
-            return m.group(1)
-        if m.group(2):
-            return m.group(2)
-        return ""
-    text = INLINE_MD_RE.sub(_sub, text or "")
+    text = text or ""
+    # 先整体去掉图片（含 GitHub 徽章），避免 ``![alt](img)`` 被当成链接文本残留
+    text = re.sub(r"!\[[^\]]*\]\([^)]*\)", "", text)
+    text = re.sub(r"\[([^\]]*)\]\([^)]*\)", r"\1", text)
+    text = re.sub(r"`([^`]*)`", r"\1", text)
+    text = re.sub(r"(\*\*|__|\*|_|~~)", "", text)
     text = re.sub(r"^[#>\-\*\s]+", "", text)
     return text.strip()
 
@@ -126,7 +119,13 @@ def detect_repo(root: Path) -> tuple:
 # --------------------------------------------------------------------------- #
 # 文档收集
 # --------------------------------------------------------------------------- #
-DEFAULT_INCLUDE = ["README.md", "docs/**/*.md", "scripts/**/*.md"]
+DEFAULT_INCLUDE = ["**/*.md"]
+DEFAULT_EXCLUDES = [".git/**", "site/**", "public/**", "node_modules/**", ".venv/**", "venv/**", "welding-gun-selection-kb/03-flat-knowledge"]
+
+# 顶层目录的展示名（未列出的目录直接使用目录名）
+GROUP_LABELS = {
+    "welding-gun-selection-kb": "焊枪选型知识库",
+}
 
 
 def collect_docs(root: Path, patterns: list, excludes: list) -> list:
@@ -154,10 +153,10 @@ def group_of(rel: str) -> str:
     if parts[0] == "docs":
         if len(parts) == 2:
             return "文档"
-        return " / ".join(parts[1:-1])
+        return {"deployment": "部署文档"}.get(parts[1], parts[1])
     if parts[0] == "scripts":
         return "脚本说明"
-    return parts[0]
+    return GROUP_LABELS.get(parts[0], parts[0])
 
 
 def group_rank(rel: str) -> int:
@@ -173,9 +172,13 @@ def group_rank(rel: str) -> int:
 
 def parse_title_desc(text: str, rel: str) -> tuple:
     title, desc = "", ""
+    in_code = False
     for raw in text.splitlines():
         line = raw.strip()
-        if not line:
+        if line.startswith("```"):
+            in_code = not in_code
+            continue
+        if in_code or not line:
             continue
         if line.startswith("#"):
             candidate = strip_md(line.lstrip("#").strip())
@@ -185,7 +188,7 @@ def parse_title_desc(text: str, rel: str) -> tuple:
         if not desc:
             if line.startswith(">") or line.startswith("|"):
                 continue
-            if line.startswith("---") or line.startswith("```"):
+            if line.startswith("---"):
                 continue
             candidate = strip_md(line)
             if candidate:
@@ -335,13 +338,13 @@ class Rewriter:
 def build(args) -> int:
     root = Path(args.root).resolve()
     out_dir = Path(args.output).resolve() if args.output else (root / "site")
-    template_path = Path(args.template).resolve() if args.template else (root / "scripts" / "docs-site-template.html")
+    template_path = Path(args.template).resolve() if args.template else (root / "scripts" / "docs-site" / "docs-site-template.html")
     if not template_path.is_file():
         sys.stderr.write("找不到模板文件：%s\n" % template_path)
         return 1
 
     patterns = args.include or DEFAULT_INCLUDE
-    excludes = [e for e in (args.exclude or []) if e]
+    excludes = DEFAULT_EXCLUDES + [e for e in (args.exclude or []) if e]
     rels = collect_docs(root, patterns, excludes)
     if not rels:
         sys.stderr.write("没有找到任何 Markdown 文档（检查 --include / --exclude 参数）\n")
@@ -445,10 +448,10 @@ def build(args) -> int:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description="构建单页 Markdown 文档站")
-    ap.add_argument("--root", default=str(Path(__file__).resolve().parent.parent), help="仓库根目录")
+    ap.add_argument("--root", default=str(Path(__file__).resolve().parent.parent.parent), help="仓库根目录")
     ap.add_argument("--output", default="", help="输出目录（默认 <root>/site）")
     ap.add_argument("--template", default="", help="HTML 模板路径")
-    ap.add_argument("--title", default="OBARA 部署文档中心", help="站点标题")
+    ap.add_argument("--title", default="OBARA 知识库系统文档中心", help="站点标题")
     ap.add_argument("--desc", default="", help="站点描述")
     ap.add_argument("--include", nargs="*", default=None, help="文档 glob（相对仓库根）")
     ap.add_argument("--exclude", nargs="*", default=None, help="排除的文档 glob")
