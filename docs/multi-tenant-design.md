@@ -90,10 +90,16 @@ WeKnora 生成邀请链接（含邀请令牌）
 成员点击邀请链接 → 注册账号（或登录已有账号）→ 自动加入对应部门工作空间
 ```
 
-### 4.2 邮箱占位说明
+### 4.2 邮箱生成规则
 
-- 初始化数据中的邮箱为占位符 `<姓名>@obara.local`，用于保证账号唯一性。
-- 若公司有统一邮箱，可在 `data/departments-personnel.json` 中替换为真实邮箱，启用 SMTP 后可自动发送邀请邮件。
+- 账号邮箱统一为「姓全拼 + 名各字首字母」@ `obara.com.cn`：
+  - 高剑 → `gaoj@obara.com.cn`
+  - 陈爱珍 → `chenaz@obara.com.cn`
+  - O/NJG 管理部张杰为特例：`zhangj_adm@obara.com.cn`
+  - 同名同人（身兼多部门，如技术开发一部 / 二部的张杰）：**共用一个账号**
+  - 前缀撞号顺延数字：张娟 → `zhangj2@obara.com.cn`
+- 邮箱写死在 `data/departments-personnel.json` 的 `email` 字段；新增人员可用
+  `scripts/multi-tenant/gen-emails.py`（依赖 `pypinyin`）按同一规则生成，也可直接手写真实邮箱。
 - 未配置 SMTP 时，邀请链接由管理员手动分发，邮箱字段仅作为登录账号使用。
 
 ### 4.3 批量初始化

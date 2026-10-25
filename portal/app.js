@@ -11,8 +11,10 @@ const STATE = {
   currentTenantId: localStorage.getItem('obara_tenant') || '',
   currentPage: 'chat',
   currentAgentId: '',
+  currentSessionId: '',
   chatHistory: [],    // [{role, content, citations}]
   streaming: false,
+  canCreateTenant: false,
 };
 
 const API_BASE = '/api/v1';
@@ -41,7 +43,9 @@ async function api(method, path, body = null, opts = {}) {
   let data;
   try { data = text ? JSON.parse(text) : {}; } catch { data = { raw: text }; }
   if (!resp.ok) {
-    const msg = data.message || data.error || `HTTP ${resp.status}`;
+    // 后端错误体：{"error":{"message":"..."}} 或 {"message":"..."}
+    const e = data && data.error;
+    const msg = (e && (e.message || e.details)) || (data && data.message) || `HTTP ${resp.status}`;
     throw new Error(msg);
   }
   return data;
@@ -84,6 +88,12 @@ function escapeHtml(s) {
   return div.innerHTML;
 }
 
+// 页脚版权年份：随当前时间自动更新
+(function initFooterYear() {
+  const year = new Date().getFullYear();
+  document.querySelectorAll('.footer-year').forEach(el => { el.textContent = year; });
+})();
+
 function getRoleBadge(role) {
   const map = { owner: 'badge-owner', admin: 'badge-admin', contributor: 'badge-contributor', viewer: 'badge-viewer' };
   const cls = map[role] || 'badge-viewer';
@@ -113,9 +123,65 @@ async function logout() {
   localStorage.removeItem('obara_tenant');
   STATE.token = '';
   STATE.user = null;
+  showLoginOnly();
+}
+
+function showLoginOnly() {
   document.getElementById('app').classList.add('hidden');
+  document.getElementById('register-page').classList.add('hidden');
   document.getElementById('login-page').classList.remove('hidden');
 }
+
+// ---------- 邀请注册（/register?token=...） ----------
+const INVITE_TOKEN = new URLSearchParams(location.search).get('token') || '';
+
+function showRegisterPage() {
+  document.getElementById('login-page').classList.add('hidden');
+  document.getElementById('app').classList.add('hidden');
+  document.getElementById('register-page').classList.remove('hidden');
+}
+
+async function initRegisterPage() {
+  showRegisterPage();
+  if (!INVITE_TOKEN) {
+    document.getElementById('register-subtitle').textContent = '邀请链接缺少 token，请联系部门文档管理员重新获取。';
+    document.getElementById('register-form').classList.add('hidden');
+    return;
+  }
+  try {
+    // token 一律走 POST body，避免落入访问日志
+    const resp = await api('POST', '/auth/invitations/lookup', { token: INVITE_TOKEN });
+    const d = resp.data || {};
+    const roleText = { owner: '文档管理员', admin: '管理员', contributor: '普通成员', viewer: '只读成员' }[d.role] || d.role;
+    document.getElementById('register-subtitle').innerHTML =
+      `你将加入 <strong>${escapeHtml(d.tenant_name || ('空间 ' + d.tenant_id))}</strong>，角色：<strong>${roleText}</strong>`;
+  } catch (err) {
+    document.getElementById('register-subtitle').textContent = '邀请链接无效或已过期：' + err.message;
+    document.getElementById('register-form').classList.add('hidden');
+  }
+}
+
+document.getElementById('register-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const username = document.getElementById('register-username').value.trim();
+  const email = document.getElementById('register-email').value.trim();
+  const password = document.getElementById('register-password').value;
+  try {
+    if (STATE.token) {
+      // 已登录用户：直接接受邀请
+      await api('POST', '/me/invitations/accept-by-token', { token: INVITE_TOKEN });
+    } else {
+      const resp = await api('POST', '/auth/register-by-invite', { token: INVITE_TOKEN, username, email, password });
+      const t = resp.token || (resp.data && resp.data.token);
+      if (!t) throw new Error('注册响应无 token，请直接登录');
+      STATE.token = t;
+      localStorage.setItem('obara_token', t);
+    }
+    location.href = '/';
+  } catch (err) {
+    toast('加入失败：' + err.message, 'error');
+  }
+});
 
 // ---------- 初始化 ----------
 async function initApp() {
@@ -125,7 +191,7 @@ async function initApp() {
     return;
   }
   try {
-    const me = await api('GET', '/me');
+    const me = await api('GET', '/auth/me');
     STATE.user = me.data || me;
   } catch (err) {
     logout();
@@ -133,17 +199,27 @@ async function initApp() {
   }
   document.getElementById('login-page').classList.add('hidden');
   document.getElementById('app').classList.remove('hidden');
-  document.getElementById('user-name').textContent = STATE.user.name || STATE.user.email || '用户';
-  document.getElementById('user-avatar').textContent = (STATE.user.name || STATE.user.email || 'U').charAt(0).toUpperCase();
+  document.getElementById('user-name').textContent = STATE.user.name || STATE.user.username || STATE.user.email || '用户';
+  document.getElementById('user-avatar').textContent = (STATE.user.username || STATE.user.email || 'U').charAt(0).toUpperCase();
   await loadTenants();
   showPage(STATE.currentPage);
 }
 
 // ---------- 工作空间切换 ----------
+// GET /tenants 只返回用户归属的单个空间；可切换的空间列表来自 /auth/me 的 memberships。
 async function loadTenants() {
   try {
-    const resp = await api('GET', '/tenants');
-    STATE.tenants = resp.data || [];
+    const me = await api('GET', '/auth/me');
+    const d = me.data || me;
+    STATE.user = d;
+    STATE.canCreateTenant = !!(d.capabilities && d.capabilities.can_create_tenant);
+    document.getElementById('btn-create-tenant').classList.toggle('hidden', !STATE.canCreateTenant);
+
+    STATE.tenants = (d.memberships || []).map(m => ({
+      id: String(m.tenant_id),
+      name: m.tenant_name || `空间 ${m.tenant_id}`,
+      role: m.role,
+    }));
     const sel = document.getElementById('tenant-select');
     sel.innerHTML = '';
     if (STATE.tenants.length === 0) {
@@ -153,11 +229,11 @@ async function loadTenants() {
     for (const t of STATE.tenants) {
       const opt = document.createElement('option');
       opt.value = t.id;
-      opt.textContent = t.name;
+      opt.textContent = t.name + (t.role === 'owner' ? '（管理员）' : '');
       sel.appendChild(opt);
     }
     // 选择上次的或第一个
-    if (STATE.currentTenantId && STATE.tenants.some(t => t.id === STATE.currentTenantId)) {
+    if (STATE.currentTenantId && STATE.tenants.some(t => t.id === String(STATE.currentTenantId))) {
       sel.value = STATE.currentTenantId;
     } else {
       STATE.currentTenantId = STATE.tenants[0].id;
@@ -178,9 +254,10 @@ async function switchTenant(id) {
 }
 
 async function onTenantChanged() {
-  const t = STATE.tenants.find(x => x.id === STATE.currentTenantId);
+  const t = STATE.tenants.find(x => x.id === String(STATE.currentTenantId));
   if (t) document.getElementById('members-dept-name').textContent = t.name;
   STATE.currentAgentId = '';
+  STATE.currentSessionId = '';
   STATE.chatHistory = [];
   renderChatMessages();
 }
@@ -231,8 +308,7 @@ async function loadAgentsForChat() {
 
 function selectAgent(id) {
   STATE.currentAgentId = id;
-  const agent = (STATE.tenants.length && STATE.currentAgentId) ? null : null;
-  // 从列表中找名称
+  STATE.currentSessionId = '';   // 换智能体即开启新会话
   const items = document.querySelectorAll('.agent-item');
   items.forEach(i => i.classList.remove('active'));
   const active = document.querySelector(`.agent-item[onclick*="'${id}'"]`);
@@ -285,10 +361,16 @@ async function sendMessage() {
   showTyping(botIdx);
 
   try {
-    await apiStream('POST', '/knowledge-chat', {
-      agent_id: STATE.currentAgentId,
+    // 问答接口挂在会话下：POST /sessions 建会话 → POST /knowledge-chat/{session_id}
+    if (!STATE.currentSessionId) {
+      const sess = await api('POST', '/sessions', { title: text.slice(0, 30) || '新会话' });
+      STATE.currentSessionId = (sess.data || {}).id;
+      if (!STATE.currentSessionId) throw new Error('创建会话失败');
+    }
+    await apiStream('POST', `/knowledge-chat/${STATE.currentSessionId}`, {
       query: text,
-      stream: true,
+      agent_id: STATE.currentAgentId,
+      agent_enabled: true,
     }, (chunk) => {
       // 解析流式片段：兼容多种字段
       const delta = chunk.content || chunk.delta || chunk.answer || (chunk.data && (chunk.data.content || chunk.data.answer)) || '';
@@ -334,18 +416,26 @@ async function loadDepartments() {
   const box = document.getElementById('tenant-table');
   box.innerHTML = '加载中...';
   try {
-    const resp = await api('GET', '/tenants');
-    const tenants = resp.data || [];
-    if (tenants.length === 0) {
+    // 工作空间目录：超管可看全量（/tenants/all），普通成员只看自己加入的部门。
+    let tenants = STATE.tenants;
+    try {
+      const resp = await api('GET', '/tenants/all?page=1&page_size=200');
+      const items = (resp.data || {}).items || resp.data || [];
+      if (Array.isArray(items) && items.length) {
+        tenants = items.map(t => ({ id: String(t.id), name: t.name, role: t.role }));
+      }
+    } catch { /* 非超管时回退到自己的空间列表 */ }
+    if (!tenants.length) {
       box.innerHTML = '<div class="empty-tip">暂无部门</div>';
       return;
     }
     box.innerHTML = `<table>
-      <thead><tr><th>部门名称</th><th>ID</th><th>操作</th></tr></thead>
+      <thead><tr><th>部门名称</th><th>ID</th><th>我的角色</th><th>操作</th></tr></thead>
       <tbody>
         ${tenants.map(t => `<tr>
           <td><strong>${escapeHtml(t.name)}</strong></td>
           <td class="muted">${t.id}</td>
+          <td>${t.role ? getRoleBadge(t.role) : '<span class="muted">-</span>'}</td>
           <td class="row-actions">
             <button class="btn btn-sm btn-secondary" onclick="enterTenant('${t.id}')">进入</button>
           </td>
@@ -398,33 +488,37 @@ async function loadMembers() {
   if (!STATE.currentTenantId) { mb.innerHTML = '<div class="empty-tip">请先选择部门</div>'; ib.innerHTML = '<div class="empty-tip">请先选择部门</div>'; return; }
   try {
     const [mResp, iResp] = await Promise.all([
-      api('GET', `/tenants/${STATE.currentTenantId}/members`),
-      api('GET', `/tenants/${STATE.currentTenantId}/invitations`),
+      api('GET', `/tenants/${STATE.currentTenantId}/members?page=1&page_size=100`),
+      api('GET', `/tenants/${STATE.currentTenantId}/invitations?page=1&page_size=100`).catch(() => ({ data: {} })),
     ]);
-    const members = mResp.data || [];
-    const invites = iResp.data || [];
+    const members = (mResp.data || {}).members || [];
+    // 邀请列表里既有「指定邮箱」的邀请，也有「共享链接」邀请（is_share_link=true）
+    const invites = (iResp.data || {}).invitations || [];
+    cachedInvites = invites;
     mb.innerHTML = members.length === 0 ? '<div class="empty-tip">暂无成员</div>' : `<table>
       <thead><tr><th>姓名</th><th>邮箱</th><th>角色</th><th>操作</th></tr></thead>
       <tbody>
         ${members.map(m => `<tr>
-          <td>${escapeHtml(m.name || m.user_name || '-')}</td>
+          <td>${escapeHtml(m.username || m.name || '-')}</td>
           <td>${escapeHtml(m.email || '')}</td>
           <td>${getRoleBadge(m.role)}</td>
           <td class="row-actions">
-            ${m.role !== 'owner' ? `<button class="btn btn-sm btn-ghost" onclick="removeMember('${m.user_id || m.id}')">移除</button>` : ''}
+            <button class="btn btn-sm btn-secondary" onclick="changeMemberRole('${m.user_id}','${m.role}')">改角色</button>
+            ${m.role !== 'owner' ? `<button class="btn btn-sm btn-ghost" onclick="removeMember('${m.user_id}')">移除</button>` : ''}
           </td>
         </tr>`).join('')}
       </tbody>
     </table>`;
     ib.innerHTML = invites.length === 0 ? '<div class="empty-tip">暂无待处理邀请</div>' : `<table>
-      <thead><tr><th>邮箱</th><th>角色</th><th>状态</th><th>操作</th></tr></thead>
+      <thead><tr><th>类型</th><th>对象</th><th>角色</th><th>状态</th><th>操作</th></tr></thead>
       <tbody>
         ${invites.map(inv => `<tr>
-          <td>${escapeHtml(inv.email || '')}</td>
+          <td>${inv.is_share_link ? '<span class="badge badge-active">共享链接</span>' : '<span class="badge badge-contributor">指定邮箱</span>'}</td>
+          <td>${escapeHtml(inv.invitee_email || inv.email || '（任何人可点击链接加入）')}</td>
           <td>${getRoleBadge(inv.role)}</td>
           <td><span class="badge badge-pending">${inv.status || 'pending'}</span></td>
           <td class="row-actions">
-            ${inv.invite_url ? `<a class="btn btn-sm btn-secondary" href="${inv.invite_url}" target="_blank">复制链接</a>` : ''}
+            ${inv.invite_url ? `<button class="btn btn-sm btn-secondary" onclick="copyInviteUrl('${inv.id}')">复制链接</button>` : ''}
             <button class="btn btn-sm btn-ghost" onclick="revokeInvite('${inv.id}')">撤销</button>
           </td>
         </tr>`).join('')}
@@ -436,35 +530,99 @@ async function loadMembers() {
   }
 }
 
+const ROLE_OPTIONS = `
+  <option value="contributor">普通成员（Contributor）</option>
+  <option value="viewer">只读成员（Viewer）</option>
+  <option value="admin">管理员（Admin）</option>
+  <option value="owner">文档管理员（Owner）</option>`;
+
+async function changeMemberRole(userId, currentRole) {
+  openModal('修改成员角色', `
+    <div class="form-group">
+      <label>新角色</label>
+      <select id="member-role">${ROLE_OPTIONS}</select>
+    </div>
+  `, async () => {
+    const role = document.getElementById('member-role').value;
+    try {
+      await api('PUT', `/tenants/${STATE.currentTenantId}/members/${userId}`, { role });
+      toast('角色已更新', 'success');
+      closeModal();
+      loadMembers();
+    } catch (err) { toast('修改失败：' + err.message, 'error'); return false; }
+  });
+  document.getElementById('member-role').value = currentRole;
+}
+
+let cachedInvites = [];
+async function copyInviteUrl(id) {
+  const inv = cachedInvites.find(x => String(x.id) === String(id));
+  const url = inv && inv.invite_url;
+  if (!url) { toast('该邀请没有链接', 'warning'); return; }
+  try {
+    await navigator.clipboard.writeText(url);
+    toast('邀请链接已复制到剪贴板', 'success');
+  } catch {
+    prompt('请手动复制邀请链接：', url);
+  }
+}
+
 function showInviteModal() {
   openModal('邀请成员', `
     <div class="form-group">
+      <label>邀请方式</label>
+      <select id="invite-mode" onchange="document.getElementById('invite-email-row').classList.toggle('hidden', this.value!=='email')">
+        <option value="link">生成共享邀请链接（推荐，对方自助注册加入）</option>
+        <option value="email">按邮箱邀请已注册账号 / 直接加入</option>
+      </select>
+    </div>
+    <div class="form-group hidden" id="invite-email-row">
       <label>邮箱</label>
       <input id="invite-email" placeholder="成员邮箱" />
-      <p class="form-hint">多个邮箱用逗号分隔</p>
+      <p class="form-hint">该邮箱必须已注册 WeKnora 账号；未注册请改用共享链接</p>
     </div>
     <div class="form-group">
       <label>角色</label>
-      <select id="invite-role">
-        <option value="contributor">普通成员（Contributor）</option>
-        <option value="viewer">只读成员（Viewer）</option>
-        <option value="admin">管理员（Admin）</option>
-        <option value="owner">所有者（Owner）</option>
-      </select>
+      <select id="invite-role">${ROLE_OPTIONS}</select>
     </div>
   `, async () => {
-    const email = document.getElementById('invite-email').value.trim();
     const role = document.getElementById('invite-role').value;
+    const mode = document.getElementById('invite-mode').value;
+    if (mode === 'link') {
+      try {
+        const resp = await api('POST', `/tenants/${STATE.currentTenantId}/invite-links`, { role });
+        const url = (resp.data || {}).invite_url;
+        closeModal();
+        if (url) {
+          openModal('邀请链接已生成', `
+            <div class="form-group">
+              <label>把下面的链接发给要加入的成员（7 天内有效）</label>
+              <textarea id="invite-url-box" rows="4">${escapeHtml(url)}</textarea>
+            </div>`, () => { closeModal(); loadMembers(); });
+          setTimeout(() => {
+            const box = document.getElementById('invite-url-box');
+            if (box) { box.focus(); box.select(); }
+          }, 50);
+        } else {
+          toast('链接已生成', 'success');
+          loadMembers();
+        }
+      } catch (err) { toast('生成失败：' + err.message, 'error'); return false; }
+      return;
+    }
+    const email = document.getElementById('invite-email').value.trim();
     if (!email) { toast('请输入邮箱', 'warning'); return false; }
     const emails = email.split(/[,，\s]+/).filter(Boolean);
-    let ok = 0, fail = 0;
+    let ok = 0, fail = 0, lastErr = '';
     for (const e of emails) {
       try {
-        await api('POST', `/tenants/${STATE.currentTenantId}/invitations`, { email: e, role });
+        // 指定邮箱邀请要求对方已注册；未注册时回退为「直接加入」同样需要账号，
+        // 因此统一走 /members 直接加入，已注册即可立即生效。
+        await api('POST', `/tenants/${STATE.currentTenantId}/members`, { email: e, role });
         ok++;
-      } catch (err) { fail++; }
+      } catch (err) { fail++; lastErr = err.message; }
     }
-    toast(`邀请完成：成功 ${ok}，失败 ${fail}`, ok ? 'success' : 'error');
+    toast(`处理完成：成功 ${ok}，失败 ${fail}${fail ? '（' + lastErr + '）' : ''}`, ok ? 'success' : 'error');
     closeModal();
     loadMembers();
   });
@@ -535,9 +693,23 @@ async function getKbOptions() {
   return cachedKbs;
 }
 
+let cachedModels = [];
+async function getModelOptions() {
+  try {
+    const resp = await api('GET', '/models');
+    cachedModels = resp.data || [];
+  } catch { cachedModels = []; }
+  return cachedModels;
+}
+
 function showAgentModal(agent = null) {
-  getKbOptions().then(kbs => {
+  Promise.all([getKbOptions(), getModelOptions()]).then(([kbs, models]) => {
     const kbOptions = kbs.map(k => `<option value="${k.id}">${escapeHtml(k.name)}</option>`).join('');
+    const cfg = agent?.config || {};
+    const chatModels = models.filter(m => m.type === 'KnowledgeQA');
+    const rerankModels = models.filter(m => m.type === 'Rerank');
+    const modelOptions = opts => `<option value="">（不指定）</option>` +
+      opts.map(m => `<option value="${m.id}">${escapeHtml(m.display_name || m.name)}</option>`).join('');
     openModal(agent ? '编辑智能体' : '新建智能体', `
       <div class="form-group">
         <label>智能体名称</label>
@@ -552,11 +724,20 @@ function showAgentModal(agent = null) {
         <select id="agent-kbs" multiple size="4">
           ${kbOptions}
         </select>
-        <p class="form-hint">按住 Ctrl/Cmd 多选</p>
+        <p class="form-hint">按住 Ctrl/Cmd 多选；不选则检索本空间全部知识库</p>
+      </div>
+      <div class="form-group">
+        <label>对话模型 <span class="muted">（必选，否则无法回答）</span></label>
+        <select id="agent-model">${modelOptions(chatModels)}</select>
+        ${chatModels.length ? '' : '<p class="form-hint">本空间还没有对话模型，请联系平台管理员在「模型管理」中注册</p>'}
+      </div>
+      <div class="form-group">
+        <label>重排序模型（可选）</label>
+        <select id="agent-rerank">${modelOptions(rerankModels)}</select>
       </div>
       <div class="form-group">
         <label>答复约束提示词（可选）</label>
-        <textarea id="agent-prompt" placeholder="如：只基于知识库内容回答，不知道则回复"未找到相关信息"">${escapeHtml(agent?.config?.system_prompt || '')}</textarea>
+        <textarea id="agent-prompt" placeholder="如：只基于知识库内容回答，不知道则回复「未找到相关信息」">${escapeHtml(cfg.system_prompt || '')}</textarea>
       </div>
     `, async () => {
       const name = document.getElementById('agent-name').value.trim();
@@ -565,14 +746,18 @@ function showAgentModal(agent = null) {
       const kbSelect = document.getElementById('agent-kbs');
       const kbIds = Array.from(kbSelect.selectedOptions).map(o => o.value);
       const prompt = document.getElementById('agent-prompt').value;
+      const modelId = document.getElementById('agent-model').value;
+      const rerankId = document.getElementById('agent-rerank').value;
       const payload = {
         name, description: desc,
         config: {
-          agent_mode: 'quick-answer',
+          ...cfg,
+          agent_mode: cfg.agent_mode || 'quick-answer',
           system_prompt: prompt,
-          kb_selection_mode: 'selected',
+          kb_selection_mode: kbIds.length ? 'selected' : 'all',
           knowledge_bases: kbIds,
-          ...(agent?.config || {}),
+          model_id: modelId,
+          rerank_model_id: rerankId,
         },
       };
       try {
@@ -587,6 +772,12 @@ function showAgentModal(agent = null) {
         loadAgents();
       } catch (err) { toast('保存失败：' + err.message, 'error'); return false; }
     });
+
+    // 回填已保存的配置
+    document.getElementById('agent-model').value = cfg.model_id || (agent ? '' : (chatModels[0] ? chatModels[0].id : ''));
+    document.getElementById('agent-rerank').value = cfg.rerank_model_id || '';
+    const kbSel = document.getElementById('agent-kbs');
+    for (const o of kbSel.options) o.selected = (cfg.knowledge_bases || []).includes(o.value);
   });
 }
 
@@ -772,4 +963,5 @@ document.getElementById('modal-confirm').addEventListener('click', () => {
 });
 
 // ---------- 启动 ----------
-initApp();
+if (location.pathname === '/register') initRegisterPage();
+else initApp();

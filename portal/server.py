@@ -17,7 +17,7 @@ import sys
 import json
 import urllib.request
 import urllib.error
-from http.server import HTTPServer, BaseHTTPRequestHandler
+from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse
 
 PORTAL_PORT = int(os.environ.get("PORTAL_PORT", "8081"))
@@ -45,14 +45,21 @@ class PortalHandler(BaseHTTPRequestHandler):
 
     # ---------- 静态文件 ----------
     def serve_static(self, path):
-        if path == "/":
+        if path in ("/", "/register"):
+            # 门户是单页应用：/register?token=... 等路由回落到 index.html
             path = "/index.html"
         # 防止目录穿越
         safe = os.path.normpath(path).lstrip("/\\")
         full = os.path.join(STATIC_DIR, safe)
         if not full.startswith(STATIC_DIR) or not os.path.isfile(full):
-            self.send_error(404, "Not Found")
-            return
+            path_only = urlparse(path).path
+            if "." not in os.path.basename(path_only):
+                path = "/index.html"
+            else:
+                self.send_error(404, "Not Found")
+                return
+            safe = os.path.normpath(path).lstrip("/\\")
+            full = os.path.join(STATIC_DIR, safe)
         ext = os.path.splitext(full)[1].lower()
         ctype = CONTENT_TYPES.get(ext, "application/octet-stream")
         with open(full, "rb") as f:
@@ -72,9 +79,12 @@ class PortalHandler(BaseHTTPRequestHandler):
 
         headers = {}
         for k, v in self.headers.items():
-            if k.lower() in ("host", "content-length", "connection"):
+            # accept-encoding 一并去掉：上游若返回 gzip，转发时会剥掉
+            # content-encoding 头导致浏览器无法解压。
+            if k.lower() in ("host", "content-length", "connection", "accept-encoding"):
                 continue
             headers[k] = v
+        headers["Accept-Encoding"] = "identity"
 
         req = urllib.request.Request(url, data=body, method=method, headers=headers)
         try:
@@ -153,7 +163,8 @@ def main():
         else:
             i += 1
 
-    server = HTTPServer(("0.0.0.0", PORTAL_PORT), PortalHandler)
+    # 多线程：问答走 SSE 长连接，单线程会阻塞门户其它请求
+    server = ThreadingHTTPServer(("0.0.0.0", PORTAL_PORT), PortalHandler)
     print(f"[OBARA Portal] 启动成功")
     print(f"  门户地址: http://0.0.0.0:{PORTAL_PORT}")
     print(f"  上游 API: {UPSTREAM}")

@@ -1,6 +1,6 @@
 {
-  "_comment": "OBARA 多租户部门与人员初始化数据。每个部门对应一个 WeKnora 工作空间（Tenant）。每部门首位人员为文档管理员（Owner），其余为普通成员（Contributor）。邮箱为占位符 @obara.local，可由管理员替换为公司真实邮箱；邀请制下实际分发的是邀请链接。",
-  "email_domain": "obara.local",
+  "_comment": "OBARA 多租户部门与人员初始化数据。每个部门对应一个 WeKnora 工作空间（Tenant）。每部门首位人员为文档管理员（Owner），其余为普通成员（Contributor）。邮箱按公司规则生成：姓全拼 + 名各字首字母 + @obara.com.cn（如 高剑 gaoj@obara.com.cn、陈爱珍 chenaz@obara.com.cn；O/NJG 管理部张杰为 zhangj_adm@obara.com.cn；重名第二条起加数字后缀）。可用 scripts/multi-tenant/gen-emails.py 重新生成，也可直接改写为个人真实邮箱。",
+  "email_domain": "obara.com.cn",
   "default_role": "contributor",
   "admin_role": "owner",
   "locations": [
@@ -12,191 +12,613 @@
           "code": "NJG-GM",
           "name": "NJG-总经理室",
           "members": [
-            { "name": "周泽健", "is_admin": true },
-            { "name": "张怀平" }
+            {
+              "name": "周泽健",
+              "is_admin": true,
+              "email": "zhouzj@obara.com.cn"
+            },
+            {
+              "name": "张怀平",
+              "email": "zhanghp@obara.com.cn"
+            }
           ]
         },
         {
           "code": "NJG-MGR",
           "name": "NJG-经理部",
           "members": [
-            { "name": "李婷", "is_admin": true },
-            { "name": "邹敏" },
-            { "name": "钟冬姑" },
-            { "name": "魏兰兰" }
+            {
+              "name": "李婷",
+              "is_admin": true,
+              "email": "lit@obara.com.cn"
+            },
+            {
+              "name": "邹敏",
+              "email": "zoum@obara.com.cn"
+            },
+            {
+              "name": "钟冬姑",
+              "email": "zhongdg@obara.com.cn"
+            },
+            {
+              "name": "魏兰兰",
+              "email": "weill@obara.com.cn"
+            }
           ]
         },
         {
           "code": "NJG-ADM",
           "name": "NJG-管理部",
           "members": [
-            { "name": "常青", "is_admin": true },
-            { "name": "张琳" },
-            { "name": "孙婧婧" },
-            { "name": "王园茜" },
-            { "name": "孙显新" },
-            { "name": "于苏闽" },
-            { "name": "张杰" }
+            {
+              "name": "常青",
+              "is_admin": true,
+              "email": "changq@obara.com.cn"
+            },
+            {
+              "name": "张琳",
+              "email": "zhangl@obara.com.cn"
+            },
+            {
+              "name": "孙婧婧",
+              "email": "sunjj@obara.com.cn"
+            },
+            {
+              "name": "王园茜",
+              "email": "wangyq@obara.com.cn"
+            },
+            {
+              "name": "孙显新",
+              "email": "sunxx@obara.com.cn"
+            },
+            {
+              "name": "于苏闽",
+              "email": "yusm@obara.com.cn"
+            },
+            {
+              "name": "张杰",
+              "email": "zhangj_adm@obara.com.cn"
+            }
           ]
         },
         {
           "code": "NJG-QA",
           "name": "NJG-品质保证部",
           "members": [
-            { "name": "马筱丰", "is_admin": true },
-            { "name": "崔亚峰" },
-            { "name": "包玉玲" },
-            { "name": "蒋婷" },
-            { "name": "骆恒" },
-            { "name": "卢振涛" },
-            { "name": "赵天雨" },
-            { "name": "刘芬" },
-            { "name": "卓秋勇" }
+            {
+              "name": "马筱丰",
+              "is_admin": true,
+              "email": "maxf@obara.com.cn"
+            },
+            {
+              "name": "崔亚峰",
+              "email": "cuiyf@obara.com.cn"
+            },
+            {
+              "name": "包玉玲",
+              "email": "baoyl@obara.com.cn"
+            },
+            {
+              "name": "蒋婷",
+              "email": "jiangt@obara.com.cn"
+            },
+            {
+              "name": "骆恒",
+              "email": "luoh@obara.com.cn"
+            },
+            {
+              "name": "卢振涛",
+              "email": "luzt@obara.com.cn"
+            },
+            {
+              "name": "赵天雨",
+              "email": "zhaoty@obara.com.cn"
+            },
+            {
+              "name": "刘芬",
+              "email": "liuf@obara.com.cn"
+            },
+            {
+              "name": "卓秋勇",
+              "email": "zhuoqy@obara.com.cn"
+            }
           ]
         },
         {
           "code": "NJG-SALES",
           "name": "NJG-营业部",
           "members": [
-            { "name": "陆方明", "is_admin": true },
-            { "name": "姜雨成" },
-            { "name": "王燕" },
-            { "name": "孙海山" },
-            { "name": "张广奇" },
-            { "name": "齐文景" },
-            { "name": "罗昕" },
-            { "name": "李守健" },
-            { "name": "郭涛" },
-            { "name": "罗本娟" },
-            { "name": "李广亮" },
-            { "name": "孙晓冉" },
-            { "name": "张燕" },
-            { "name": "王兴龙" },
-            { "name": "贾银鑫" },
-            { "name": "王会永" },
-            { "name": "赵丹" },
-            { "name": "魏艳" },
-            { "name": "曹圩圩" },
-            { "name": "熊飞" },
-            { "name": "谢小欢" },
-            { "name": "袁林" },
-            { "name": "张正轩" },
-            { "name": "王宇轩" },
-            { "name": "顾宇" }
+            {
+              "name": "陆方明",
+              "is_admin": true,
+              "email": "lufm@obara.com.cn"
+            },
+            {
+              "name": "姜雨成",
+              "email": "jiangyc@obara.com.cn"
+            },
+            {
+              "name": "王燕",
+              "email": "wangy@obara.com.cn"
+            },
+            {
+              "name": "孙海山",
+              "email": "sunhs@obara.com.cn"
+            },
+            {
+              "name": "张广奇",
+              "email": "zhanggq@obara.com.cn"
+            },
+            {
+              "name": "齐文景",
+              "email": "qiwj@obara.com.cn"
+            },
+            {
+              "name": "罗昕",
+              "email": "luox@obara.com.cn"
+            },
+            {
+              "name": "李守健",
+              "email": "lisj@obara.com.cn"
+            },
+            {
+              "name": "郭涛",
+              "email": "guot@obara.com.cn"
+            },
+            {
+              "name": "罗本娟",
+              "email": "luobj@obara.com.cn"
+            },
+            {
+              "name": "李广亮",
+              "email": "ligl@obara.com.cn"
+            },
+            {
+              "name": "孙晓冉",
+              "email": "sunxr@obara.com.cn"
+            },
+            {
+              "name": "张燕",
+              "email": "zhangy@obara.com.cn"
+            },
+            {
+              "name": "王兴龙",
+              "email": "wangxl@obara.com.cn"
+            },
+            {
+              "name": "贾银鑫",
+              "email": "jiayx@obara.com.cn"
+            },
+            {
+              "name": "王会永",
+              "email": "wanghy@obara.com.cn"
+            },
+            {
+              "name": "赵丹",
+              "email": "zhaod@obara.com.cn"
+            },
+            {
+              "name": "魏艳",
+              "email": "weiy@obara.com.cn"
+            },
+            {
+              "name": "曹圩圩",
+              "email": "caoww@obara.com.cn"
+            },
+            {
+              "name": "熊飞",
+              "email": "xiongf@obara.com.cn"
+            },
+            {
+              "name": "谢小欢",
+              "email": "xiexh@obara.com.cn"
+            },
+            {
+              "name": "袁林",
+              "email": "yuanl@obara.com.cn"
+            },
+            {
+              "name": "张正轩",
+              "email": "zhangzx@obara.com.cn"
+            },
+            {
+              "name": "王宇轩",
+              "email": "wangyx@obara.com.cn"
+            },
+            {
+              "name": "顾宇",
+              "email": "guy@obara.com.cn"
+            }
           ]
         },
         {
           "code": "NJG-MFG",
           "name": "NJG-制造部",
           "members": [
-            { "name": "冯爱国", "is_admin": true },
-            { "name": "葛全华" },
-            { "name": "周宜华" },
-            { "name": "谢世清" },
-            { "name": "吴宏图" },
-            { "name": "王安" },
-            { "name": "姚凌燕" },
-            { "name": "孙孝荣" },
-            { "name": "王安兵" },
-            { "name": "王莉" },
-            { "name": "何永祥" },
-            { "name": "何丽萍" },
-            { "name": "张黎涛" },
-            { "name": "王永高" },
-            { "name": "藏园园" }
+            {
+              "name": "冯爱国",
+              "is_admin": true,
+              "email": "fengag@obara.com.cn"
+            },
+            {
+              "name": "葛全华",
+              "email": "geqh@obara.com.cn"
+            },
+            {
+              "name": "周宜华",
+              "email": "zhouyh@obara.com.cn"
+            },
+            {
+              "name": "谢世清",
+              "email": "xiesq@obara.com.cn"
+            },
+            {
+              "name": "吴宏图",
+              "email": "wuht@obara.com.cn"
+            },
+            {
+              "name": "王安",
+              "email": "wanga@obara.com.cn"
+            },
+            {
+              "name": "姚凌燕",
+              "email": "yaoly@obara.com.cn"
+            },
+            {
+              "name": "孙孝荣",
+              "email": "sunxr2@obara.com.cn"
+            },
+            {
+              "name": "王安兵",
+              "email": "wangab@obara.com.cn"
+            },
+            {
+              "name": "王莉",
+              "email": "wangl@obara.com.cn"
+            },
+            {
+              "name": "何永祥",
+              "email": "heyx@obara.com.cn"
+            },
+            {
+              "name": "何丽萍",
+              "email": "help@obara.com.cn"
+            },
+            {
+              "name": "张黎涛",
+              "email": "zhanglt@obara.com.cn"
+            },
+            {
+              "name": "王永高",
+              "email": "wangyg@obara.com.cn"
+            },
+            {
+              "name": "藏园园",
+              "email": "zangyy@obara.com.cn"
+            }
           ]
         },
         {
           "code": "NJG-DEV1",
           "name": "NJG-技术开发一部",
           "members": [
-            { "name": "张杰", "is_admin": true },
-            { "name": "相原直树" },
-            { "name": "刘宇" },
-            { "name": "李文涛" },
-            { "name": "朱偶忠" },
-            { "name": "施春涛" },
-            { "name": "杨琳" },
-            { "name": "王思葳" },
-            { "name": "冯海兰" },
-            { "name": "陈丽萍" },
-            { "name": "倪超" },
-            { "name": "王筠" },
-            { "name": "刘晨艳" },
-            { "name": "钱丽军" },
-            { "name": "夏锦荣" },
-            { "name": "王集忠" },
-            { "name": "郑智文" },
-            { "name": "成中元" },
-            { "name": "强克银" },
-            { "name": "徐涛" },
-            { "name": "吴鹏" },
-            { "name": "应肖云" },
-            { "name": "陈阳" },
-            { "name": "王利民" },
-            { "name": "王卉" },
-            { "name": "曹旺" },
-            { "name": "孙东宝" },
-            { "name": "邸海力汗" },
-            { "name": "李国庆" },
-            { "name": "陈思悠" },
-            { "name": "李文臣" },
-            { "name": "葛霖" },
-            { "name": "杨马飞" },
-            { "name": "胡渊" }
+            {
+              "name": "张杰",
+              "is_admin": true,
+              "email": "zhangj@obara.com.cn",
+              "username": "张杰(技术开发部)"
+            },
+            {
+              "name": "相原直树",
+              "email": "xiangyzs@obara.com.cn"
+            },
+            {
+              "name": "刘宇",
+              "email": "liuy@obara.com.cn"
+            },
+            {
+              "name": "李文涛",
+              "email": "liwt@obara.com.cn"
+            },
+            {
+              "name": "朱偶忠",
+              "email": "zhuoz@obara.com.cn"
+            },
+            {
+              "name": "施春涛",
+              "email": "shict@obara.com.cn"
+            },
+            {
+              "name": "杨琳",
+              "email": "yangl@obara.com.cn"
+            },
+            {
+              "name": "王思葳",
+              "email": "wangsw@obara.com.cn"
+            },
+            {
+              "name": "冯海兰",
+              "email": "fenghl@obara.com.cn"
+            },
+            {
+              "name": "陈丽萍",
+              "email": "chenlp@obara.com.cn"
+            },
+            {
+              "name": "倪超",
+              "email": "nic@obara.com.cn"
+            },
+            {
+              "name": "王筠",
+              "email": "wangy2@obara.com.cn"
+            },
+            {
+              "name": "刘晨艳",
+              "email": "liucy@obara.com.cn"
+            },
+            {
+              "name": "钱丽军",
+              "email": "qianlj@obara.com.cn"
+            },
+            {
+              "name": "夏锦荣",
+              "email": "xiajr@obara.com.cn"
+            },
+            {
+              "name": "王集忠",
+              "email": "wangjz@obara.com.cn"
+            },
+            {
+              "name": "郑智文",
+              "email": "zhengzw@obara.com.cn"
+            },
+            {
+              "name": "成中元",
+              "email": "chengzy@obara.com.cn"
+            },
+            {
+              "name": "强克银",
+              "email": "qiangky@obara.com.cn"
+            },
+            {
+              "name": "徐涛",
+              "email": "xut@obara.com.cn"
+            },
+            {
+              "name": "吴鹏",
+              "email": "wup@obara.com.cn"
+            },
+            {
+              "name": "应肖云",
+              "email": "yingxy@obara.com.cn"
+            },
+            {
+              "name": "陈阳",
+              "email": "cheny@obara.com.cn"
+            },
+            {
+              "name": "王利民",
+              "email": "wanglm@obara.com.cn"
+            },
+            {
+              "name": "王卉",
+              "email": "wangh@obara.com.cn"
+            },
+            {
+              "name": "曹旺",
+              "email": "caow@obara.com.cn"
+            },
+            {
+              "name": "孙东宝",
+              "email": "sundb@obara.com.cn"
+            },
+            {
+              "name": "邸海力汗",
+              "email": "dihlh@obara.com.cn"
+            },
+            {
+              "name": "李国庆",
+              "email": "ligq@obara.com.cn"
+            },
+            {
+              "name": "陈思悠",
+              "email": "chensy@obara.com.cn"
+            },
+            {
+              "name": "李文臣",
+              "email": "liwc@obara.com.cn"
+            },
+            {
+              "name": "葛霖",
+              "email": "gel@obara.com.cn"
+            },
+            {
+              "name": "杨马飞",
+              "email": "yangmf@obara.com.cn"
+            },
+            {
+              "name": "胡渊",
+              "email": "huy@obara.com.cn"
+            }
           ]
         },
         {
           "code": "NJG-PUR",
           "name": "NJG-购买部",
           "members": [
-            { "name": "马晏陟", "is_admin": true },
-            { "name": "唐志民" },
-            { "name": "龚礼祥" },
-            { "name": "糜晓健" },
-            { "name": "周金凤" },
-            { "name": "刘鲁宁" },
-            { "name": "周建平" },
-            { "name": "尹翠平" },
-            { "name": "顾岚" },
-            { "name": "徐燕来" }
+            {
+              "name": "马晏陟",
+              "is_admin": true,
+              "email": "mayz@obara.com.cn"
+            },
+            {
+              "name": "唐志民",
+              "email": "tangzm@obara.com.cn"
+            },
+            {
+              "name": "龚礼祥",
+              "email": "gonglx@obara.com.cn"
+            },
+            {
+              "name": "糜晓健",
+              "email": "mixj@obara.com.cn"
+            },
+            {
+              "name": "周金凤",
+              "email": "zhoujf@obara.com.cn"
+            },
+            {
+              "name": "刘鲁宁",
+              "email": "liuln@obara.com.cn"
+            },
+            {
+              "name": "周建平",
+              "email": "zhoujp@obara.com.cn"
+            },
+            {
+              "name": "尹翠平",
+              "email": "yincp@obara.com.cn"
+            },
+            {
+              "name": "顾岚",
+              "email": "gul@obara.com.cn"
+            },
+            {
+              "name": "徐燕来",
+              "email": "xuyl@obara.com.cn"
+            }
           ]
         },
         {
           "code": "NJG-DEV2",
           "name": "NJG-技术开发二部",
           "members": [
-            { "name": "张杰", "is_admin": true },
-            { "name": "张祖旺" },
-            { "name": "陈青松" },
-            { "name": "王福跃" },
-            { "name": "张明" },
-            { "name": "葛慧" },
-            { "name": "严新星" },
-            { "name": "孙茂余" },
-            { "name": "高剑" },
-            { "name": "杨虹" },
-            { "name": "张万利" },
-            { "name": "翟世学" },
-            { "name": "戴红琴" },
-            { "name": "许静" },
-            { "name": "陈爱珍" },
-            { "name": "陈大仪" },
-            { "name": "韩同进" },
-            { "name": "侯桂英" },
-            { "name": "张啸" },
-            { "name": "佘鲁明" },
-            { "name": "朱海洋" },
-            { "name": "郁钰" },
-            { "name": "丁代远" },
-            { "name": "周骅" },
-            { "name": "周椿杰" },
-            { "name": "徐绍洋" },
-            { "name": "张艳珍" },
-            { "name": "林慈贤" },
-            { "name": "吴健" },
-            { "name": "朱栋栋" },
-            { "name": "陈浩东" }
+            {
+              "name": "张杰",
+              "is_admin": true,
+              "email": "zhangj@obara.com.cn",
+              "username": "张杰(技术开发部)"
+            },
+            {
+              "name": "张祖旺",
+              "email": "zhangzw@obara.com.cn"
+            },
+            {
+              "name": "陈青松",
+              "email": "chenqs@obara.com.cn"
+            },
+            {
+              "name": "王福跃",
+              "email": "wangfy@obara.com.cn"
+            },
+            {
+              "name": "张明",
+              "email": "zhangm@obara.com.cn"
+            },
+            {
+              "name": "葛慧",
+              "email": "geh@obara.com.cn"
+            },
+            {
+              "name": "严新星",
+              "email": "yanxx@obara.com.cn"
+            },
+            {
+              "name": "孙茂余",
+              "email": "sunmy@obara.com.cn"
+            },
+            {
+              "name": "高剑",
+              "email": "gaoj@obara.com.cn"
+            },
+            {
+              "name": "杨虹",
+              "email": "yangh@obara.com.cn"
+            },
+            {
+              "name": "张万利",
+              "email": "zhangwl@obara.com.cn"
+            },
+            {
+              "name": "翟世学",
+              "email": "zhaisx@obara.com.cn"
+            },
+            {
+              "name": "戴红琴",
+              "email": "daihq@obara.com.cn"
+            },
+            {
+              "name": "许静",
+              "email": "xuj@obara.com.cn"
+            },
+            {
+              "name": "陈爱珍",
+              "email": "chenaz@obara.com.cn"
+            },
+            {
+              "name": "陈大仪",
+              "email": "chendy@obara.com.cn"
+            },
+            {
+              "name": "韩同进",
+              "email": "hantj@obara.com.cn"
+            },
+            {
+              "name": "侯桂英",
+              "email": "hougy@obara.com.cn"
+            },
+            {
+              "name": "张啸",
+              "email": "zhangx@obara.com.cn"
+            },
+            {
+              "name": "佘鲁明",
+              "email": "shelm@obara.com.cn"
+            },
+            {
+              "name": "朱海洋",
+              "email": "zhuhy@obara.com.cn"
+            },
+            {
+              "name": "郁钰",
+              "email": "yuy@obara.com.cn"
+            },
+            {
+              "name": "丁代远",
+              "email": "dingdy@obara.com.cn"
+            },
+            {
+              "name": "周骅",
+              "email": "zhouh@obara.com.cn"
+            },
+            {
+              "name": "周椿杰",
+              "email": "zhoucj@obara.com.cn"
+            },
+            {
+              "name": "徐绍洋",
+              "email": "xusy@obara.com.cn"
+            },
+            {
+              "name": "张艳珍",
+              "email": "zhangyz@obara.com.cn"
+            },
+            {
+              "name": "林慈贤",
+              "email": "lincx@obara.com.cn"
+            },
+            {
+              "name": "吴健",
+              "email": "wuj@obara.com.cn"
+            },
+            {
+              "name": "朱栋栋",
+              "email": "zhudd@obara.com.cn"
+            },
+            {
+              "name": "陈浩东",
+              "email": "chenhd@obara.com.cn"
+            }
           ]
         }
       ]
@@ -209,91 +631,245 @@
           "code": "SHA-GM",
           "name": "SHA-总经理室",
           "members": [
-            { "name": "周泽健", "is_admin": true },
-            { "name": "张怀平" }
+            {
+              "name": "周泽健",
+              "is_admin": true,
+              "email": "zhouzj@obara.com.cn"
+            },
+            {
+              "name": "张怀平",
+              "email": "zhanghp@obara.com.cn"
+            }
           ]
         },
         {
           "code": "SHA-MGR",
           "name": "SHA-经理部",
           "members": [
-            { "name": "李婷", "is_admin": true },
-            { "name": "匡俭" },
-            { "name": "黄漪清" },
-            { "name": "陈佳绘" }
+            {
+              "name": "李婷",
+              "is_admin": true,
+              "email": "lit@obara.com.cn"
+            },
+            {
+              "name": "匡俭",
+              "email": "kuangj@obara.com.cn"
+            },
+            {
+              "name": "黄漪清",
+              "email": "huangyq@obara.com.cn"
+            },
+            {
+              "name": "陈佳绘",
+              "email": "chenjh@obara.com.cn"
+            }
           ]
         },
         {
           "code": "SHA-ADM",
           "name": "SHA-管理部",
           "members": [
-            { "name": "常青", "is_admin": true },
-            { "name": "孙艳" },
-            { "name": "陈艳" },
-            { "name": "潘剑清" },
-            { "name": "沈旭东" },
-            { "name": "孙显新" },
-            { "name": "江玮玖" }
+            {
+              "name": "常青",
+              "is_admin": true,
+              "email": "changq@obara.com.cn"
+            },
+            {
+              "name": "孙艳",
+              "email": "suny@obara.com.cn"
+            },
+            {
+              "name": "陈艳",
+              "email": "cheny2@obara.com.cn"
+            },
+            {
+              "name": "潘剑清",
+              "email": "panjq@obara.com.cn"
+            },
+            {
+              "name": "沈旭东",
+              "email": "shenxd@obara.com.cn"
+            },
+            {
+              "name": "孙显新",
+              "email": "sunxx@obara.com.cn"
+            },
+            {
+              "name": "江玮玖",
+              "email": "jiangwj@obara.com.cn"
+            }
           ]
         },
         {
           "code": "SHA-PUR",
           "name": "SHA-购买部",
           "members": [
-            { "name": "马晏陟", "is_admin": true },
-            { "name": "李坚" },
-            { "name": "顾朝明" },
-            { "name": "陈蓓丽" },
-            { "name": "黄丽萍" },
-            { "name": "罗婷婷" }
+            {
+              "name": "马晏陟",
+              "is_admin": true,
+              "email": "mayz@obara.com.cn"
+            },
+            {
+              "name": "李坚",
+              "email": "lij@obara.com.cn"
+            },
+            {
+              "name": "顾朝明",
+              "email": "gucm@obara.com.cn"
+            },
+            {
+              "name": "陈蓓丽",
+              "email": "chenbl@obara.com.cn"
+            },
+            {
+              "name": "黄丽萍",
+              "email": "huanglp@obara.com.cn"
+            },
+            {
+              "name": "罗婷婷",
+              "email": "luott@obara.com.cn"
+            }
           ]
         },
         {
           "code": "SHA-QA",
           "name": "SHA-品质保证部",
           "members": [
-            { "name": "马筱丰", "is_admin": true },
-            { "name": "张常明" },
-            { "name": "杨晓辉" }
+            {
+              "name": "马筱丰",
+              "is_admin": true,
+              "email": "maxf@obara.com.cn"
+            },
+            {
+              "name": "张常明",
+              "email": "zhangcm@obara.com.cn"
+            },
+            {
+              "name": "杨晓辉",
+              "email": "yangxh@obara.com.cn"
+            }
           ]
         },
         {
           "code": "SHA-SALES",
           "name": "SHA-营业部",
           "members": [
-            { "name": "陆方明", "is_admin": true },
-            { "name": "何斌" },
-            { "name": "吴佳梅" },
-            { "name": "沈雨帆" },
-            { "name": "张晟隽" },
-            { "name": "吴露鹭" },
-            { "name": "茅舒" },
-            { "name": "许华俊" },
-            { "name": "梁科研" },
-            { "name": "赵永燕" },
-            { "name": "顾瑜瑾" },
-            { "name": "桑雯怡" },
-            { "name": "朱洪波" },
-            { "name": "张娟" }
+            {
+              "name": "陆方明",
+              "is_admin": true,
+              "email": "lufm@obara.com.cn"
+            },
+            {
+              "name": "何斌",
+              "email": "heb@obara.com.cn"
+            },
+            {
+              "name": "吴佳梅",
+              "email": "wujm@obara.com.cn"
+            },
+            {
+              "name": "沈雨帆",
+              "email": "shenyf@obara.com.cn"
+            },
+            {
+              "name": "张晟隽",
+              "email": "zhangsj@obara.com.cn"
+            },
+            {
+              "name": "吴露鹭",
+              "email": "wull@obara.com.cn"
+            },
+            {
+              "name": "茅舒",
+              "email": "maos@obara.com.cn"
+            },
+            {
+              "name": "许华俊",
+              "email": "xuhj@obara.com.cn"
+            },
+            {
+              "name": "梁科研",
+              "email": "liangky@obara.com.cn"
+            },
+            {
+              "name": "赵永燕",
+              "email": "zhaoyy@obara.com.cn"
+            },
+            {
+              "name": "顾瑜瑾",
+              "email": "guyj@obara.com.cn"
+            },
+            {
+              "name": "桑雯怡",
+              "email": "sangwy@obara.com.cn"
+            },
+            {
+              "name": "朱洪波",
+              "email": "zhuhb@obara.com.cn"
+            },
+            {
+              "name": "张娟",
+              "email": "zhangj2@obara.com.cn"
+            }
           ]
         },
         {
           "code": "SHA-MFG",
           "name": "SHA-制造部",
           "members": [
-            { "name": "冯爱国", "is_admin": true },
-            { "name": "张圣安" },
-            { "name": "岩本诚" },
-            { "name": "胡建中" },
-            { "name": "殷伟青" },
-            { "name": "徐祺" },
-            { "name": "王晓燕" },
-            { "name": "董心金" },
-            { "name": "陈海东" },
-            { "name": "孔令钊" },
-            { "name": "万林" },
-            { "name": "黄汉忠" },
-            { "name": "张斌" }
+            {
+              "name": "冯爱国",
+              "is_admin": true,
+              "email": "fengag@obara.com.cn"
+            },
+            {
+              "name": "张圣安",
+              "email": "zhangsa@obara.com.cn"
+            },
+            {
+              "name": "岩本诚",
+              "email": "yanbc@obara.com.cn"
+            },
+            {
+              "name": "胡建中",
+              "email": "hujz@obara.com.cn"
+            },
+            {
+              "name": "殷伟青",
+              "email": "yinwq@obara.com.cn"
+            },
+            {
+              "name": "徐祺",
+              "email": "xuq@obara.com.cn"
+            },
+            {
+              "name": "王晓燕",
+              "email": "wangxy@obara.com.cn"
+            },
+            {
+              "name": "董心金",
+              "email": "dongxj@obara.com.cn"
+            },
+            {
+              "name": "陈海东",
+              "email": "chenhd2@obara.com.cn"
+            },
+            {
+              "name": "孔令钊",
+              "email": "konglz@obara.com.cn"
+            },
+            {
+              "name": "万林",
+              "email": "wanl@obara.com.cn"
+            },
+            {
+              "name": "黄汉忠",
+              "email": "huanghz@obara.com.cn"
+            },
+            {
+              "name": "张斌",
+              "email": "zhangb@obara.com.cn"
+            }
           ]
         }
       ]

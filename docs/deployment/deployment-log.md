@@ -696,6 +696,65 @@ sudo bash scripts/deploy/install-rerank.sh --recreate --cpus 6 --memory 4g --bat
 
 ---
 
+## 七之二、账号邮箱规范化（拼音规则）与多部门人员修正
+
+### 背景
+
+初始批量开户时邮箱为占位格式 `<姓名>@obara.local`（中文 local part），不便记忆也无法对接公司邮箱，
+故统一改为公司域名下的拼音邮箱，并顺带修正「同一人身兼多部门」造成的重复账号。
+
+### 邮箱规则
+
+```
+邮箱 = 姓（全拼）+ 名（每个汉字的首字母） + @obara.com.cn
+高剑      -> gaoj@obara.com.cn
+陈爱珍    -> chenaz@obara.com.cn
+张杰（O/NJG 管理部，特例） -> zhangj_adm@obara.com.cn
+```
+
+- 规则固化在 `scripts/multi-tenant/gen-emails.py`（依赖 `pypinyin`），生成结果写回
+  `data/departments-personnel.json` 的 `email` 字段，作为唯一数据源
+- 姓氏多音字已人工校正：`翟=zhai`、`藏=zang`；名字用字：`晟=s`
+- **同一人身兼多部门**（如 周泽健 同属 NJG-总经理室 与 SHA-总经理室）：共用一个账号、一个邮箱，
+  同时是多个空间的成员
+- **同名不同人**：仅张杰一例，共 2 位
+  - NJG-管理部张杰：`zhangj_adm@obara.com.cn`（用户名 `张杰`）
+  - NJG-技术开发一部 / 二部张杰：**同一人**，合并为一个账号 `zhangj@obara.com.cn`
+    （用户名 `张杰(技术开发部)`，同时是两个空间的 owner）
+- 前缀撞号：张娟与两位张杰同前缀，顺延为 `zhangj2@obara.com.cn`
+
+### 落地方式与结果
+
+| 项 | 结果 |
+| --- | --- |
+| 账号改名 | 直接 `UPDATE users SET email=...`（175 个存量账号），**密码哈希与成员关系保持不变** |
+| 新增账号 | 1 个（技术开发部张杰）；技术开发一部 / 二部已合并为同一账号 |
+| 账号总数 | 176（186 条人员归属记录） |
+| 成员关系 | 186 条，核对无缺失、无多余（清理了张杰旧账号遗留的 2 条关系） |
+| 门户登录提示 | 登录页 / 邀请注册页已提示企业邮箱规则 |
+| 模型注入 | 16 个部门空间均已具备 embedding / 对话 / rerank 模型（`init-tenants.sh` 第 5 步） |
+
+### 顺带修复的脚本缺陷
+
+- `init-tenants.sh` 先创建本轮空清单、再 `ls -t` 取「上次清单」，导致密码永远读不到
+  → 改为**先载入上次密码**再创建本轮文件
+- 计划行新增第 5 列 `username`，但 `read` 仍只读 4 列，role 被拼成 `owner\t用户名`
+  → 全部成员加入失败（`role must be one of ...`），已补齐列并让注册使用去重后的用户名
+
+### 复跑方式
+
+```bash
+# 生成 / 重生邮箱（--force 覆盖已有 email）
+python3 scripts/multi-tenant/gen-emails.py --domain obara.com.cn --force
+
+# 幂等执行：建空间 → 建账号 → 接入成员 → 注入模型 → 生成邀请链接
+ADMIN_PASSWORD='<超管密码>' bash scripts/multi-tenant/init-tenants.sh
+```
+
+> 账号密码清单 `output/accounts-*.csv` 属敏感文件，历史版本已归档到 `output/history/`，发放后请删除。
+
+---
+
 ## 八、安全相关（试点结束后回收）
 
 - `/etc/sudoers.d/tobin-nopasswd`：部署期为便于自动化运维配置的免密 sudo（`NOPASSWD: ALL`），**试点结束后执行 `sudo rm /etc/sudoers.d/tobin-nopasswd` 回收**；所有 sudo 调用仍记录在 `/var/log/auth.log`

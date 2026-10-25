@@ -9,25 +9,75 @@
 <body>
   <!-- 登录页 -->
   <div id="login-page" class="login-page">
-    <div class="login-card">
-      <div class="login-logo">
-        <div class="logo-icon">OB</div>
-        <h1>OBARA 知识问答平台</h1>
-        <p class="login-subtitle">企业内部文档智能问答与知识管理</p>
-      </div>
-      <form id="login-form" class="login-form">
-        <div class="form-group">
-          <label>邮箱</label>
-          <input type="email" id="login-email" placeholder="请输入邮箱" required />
-        </div>
-        <div class="form-group">
-          <label>密码</label>
-          <input type="password" id="login-password" placeholder="请输入密码" required />
-        </div>
-        <button type="submit" class="btn btn-primary btn-block">登 录</button>
-        <p class="login-hint">尚未注册？请向部门文档管理员索取邀请链接</p>
-      </form>
+    <div class="login-shell">
+      <section class="login-brand">
+        <div class="brand-mark">OB</div>
+        <h1 class="brand-title">OBARA 知识问答平台</h1>
+        <p class="brand-subtitle">企业内部文档智能问答与知识管理</p>
+        <ul class="brand-points">
+          <li>按部门隔离的知识空间，数据更安全</li>
+          <li>文档一键入库，智能问答即刻可用</li>
+          <li>答案附带引用来源，结果可追溯</li>
+        </ul>
+      </section>
+
+      <section class="login-card">
+        <header class="login-card-head">
+          <h2>欢迎回来</h2>
+          <p>请使用企业邮箱账号登录</p>
+        </header>
+        <form id="login-form" class="login-form">
+          <div class="form-group">
+            <label for="login-email">邮箱</label>
+            <input type="email" id="login-email" placeholder="请输入邮箱" autocomplete="username" required />
+          </div>
+          <div class="form-group">
+            <label for="login-password">密码</label>
+            <input type="password" id="login-password" placeholder="请输入密码" autocomplete="current-password" required />
+          </div>
+          <button type="submit" class="btn btn-primary btn-block">登 录</button>
+          <p class="login-hint">尚未注册？请向部门文档管理员索取邀请链接</p>
+        </form>
+      </section>
     </div>
+
+    <footer class="login-footer">
+      <p class="footer-slogan">以客户为中心&nbsp;&nbsp;关怀员工&nbsp;&nbsp;鼓励创新&nbsp;&nbsp;纳新去旧</p>
+      <p class="footer-copy">版权所有 © 1994-<span class="footer-year">2026</span>&nbsp;小原（南京）机电有限公司</p>
+    </footer>
+  </div>
+
+  <!-- 邀请注册页（/register?token=...） -->
+  <div id="register-page" class="login-page hidden">
+    <div class="login-shell login-shell-center">
+      <section class="login-card">
+        <header class="login-card-head">
+          <h2>加入部门工作空间</h2>
+          <p id="register-subtitle">正在校验邀请链接...</p>
+        </header>
+        <form id="register-form" class="login-form">
+          <div class="form-group">
+            <label for="register-username">姓名 / 用户名</label>
+            <input id="register-username" placeholder="请输入真实姓名" required />
+          </div>
+          <div class="form-group">
+            <label for="register-email">邮箱（登录账号）</label>
+            <input type="email" id="register-email" placeholder="请输入邮箱" autocomplete="username" required />
+          </div>
+          <div class="form-group">
+            <label for="register-password">密码</label>
+            <input type="password" id="register-password" placeholder="8-32 位，含字母和数字" autocomplete="new-password" required />
+          </div>
+          <button type="submit" class="btn btn-primary btn-block">注册并加入</button>
+          <p class="login-hint">已有账号？<a href="/" onclick="event.preventDefault();showLoginOnly()">返回登录</a></p>
+        </form>
+      </section>
+    </div>
+
+    <footer class="login-footer">
+      <p class="footer-slogan">以客户为中心&nbsp;&nbsp;关怀员工&nbsp;&nbsp;鼓励创新&nbsp;&nbsp;纳新去旧</p>
+      <p class="footer-copy">版权所有 © 1994-<span class="footer-year">2026</span>&nbsp;小原（南京）机电有限公司</p>
+    </footer>
   </div>
 
   <!-- 主应用 -->
@@ -113,7 +163,7 @@
       <section id="page-departments" class="page">
         <div class="page-header">
           <h2>部门管理</h2>
-          <button class="btn btn-primary" onclick="showCreateTenantModal()">+ 新建部门</button>
+          <button id="btn-create-tenant" class="btn btn-primary hidden" onclick="showCreateTenantModal()">+ 新建部门</button>
         </div>
         <div class="card">
           <div id="tenant-table" class="data-table">加载中...</div>
