@@ -2,7 +2,7 @@
 <html lang="zh-CN" data-theme="light">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>{{SITE_TITLE}}</title>
 <meta name="description" content="{{SITE_DESC}}">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📚</text></svg>">
@@ -92,7 +92,7 @@ header.topbar{
   padding-top:var(--header-h);max-width:1560px;margin:0 auto}
 
 /* ---------- 侧栏 ---------- */
-aside.sidebar{position:sticky;top:var(--header-h);height:calc(100vh - var(--header-h));overflow-y:auto;
+aside.sidebar{position:sticky;top:var(--header-h);height:calc(100vh - var(--header-h));height:calc(100dvh - var(--header-h));overflow-y:auto;
   border-right:1px solid var(--border-soft);padding:18px 12px 40px;background:var(--bg-elev)}
 .sidebar::-webkit-scrollbar,.toc-panel::-webkit-scrollbar,.doc-toc::-webkit-scrollbar{width:8px}
 .sidebar::-webkit-scrollbar-thumb,.toc-panel::-webkit-scrollbar-thumb,.doc-toc::-webkit-scrollbar-thumb{background:var(--border);border-radius:8px}
@@ -131,7 +131,7 @@ article.doc{animation:fade .28s ease}
 .doc-toc ul ul a{padding-left:14px;font-size:13px;color:var(--fg-muted)}
 
 /* ---------- Markdown 排版 ---------- */
-.doc-body{max-width:900px}
+.doc-body{max-width:900px;overflow-wrap:anywhere}
 .doc-body h1,.doc-body h2,.doc-body h3,.doc-body h4{color:var(--fg-strong);font-weight:700;line-height:1.35;scroll-margin-top:calc(var(--header-h) + 18px)}
 .doc-body h1{font-size:24px;margin:34px 0 14px}
 .doc-body h2{font-size:20.5px;margin:34px 0 12px;padding-bottom:8px;border-bottom:1px solid var(--border-soft)}
@@ -156,11 +156,12 @@ article.doc{animation:fade .28s ease}
   font-size:13px;font-family:"JetBrains Mono",SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace}
 .doc-body pre{position:relative;margin:16px 0;padding:14px 16px;border-radius:12px;overflow-x:auto;
   background:var(--code-bg);border:1px solid var(--border);line-height:1.6}
-.doc-body pre code{background:none;border:0;padding:0;font-size:13px;display:block}
+.doc-body pre code{background:none;border:0;padding:0;font-size:13px;display:block;overflow-wrap:normal;word-break:normal}
 .doc-body .codewrap{position:relative}
 .doc-body .copybtn{position:absolute;top:8px;right:8px;font-size:11.5px;padding:3px 9px;border-radius:7px;
   border:1px solid var(--border);background:var(--bg-elev);color:var(--fg-muted);cursor:pointer;opacity:0;transition:.18s}
 .doc-body .codewrap:hover .copybtn{opacity:1}
+@media(hover:none){.doc-body .copybtn{opacity:1}}
 .doc-body .copybtn:hover{color:var(--accent);border-color:var(--accent)}
 .doc-body .anchor{opacity:0;margin-left:8px;font-size:.8em;color:var(--fg-muted);text-decoration:none}
 .doc-body h1:hover .anchor,.doc-body h2:hover .anchor,.doc-body h3:hover .anchor,.doc-body h4:hover .anchor{opacity:.7}
@@ -169,7 +170,7 @@ article.doc{animation:fade .28s ease}
 .doc-body kbd{border:1px solid var(--border);border-bottom-width:2px;border-radius:6px;padding:1px 6px;font-size:12px;background:var(--bg-soft)}
 
 /* ---------- 右侧目录 ---------- */
-.toc-panel{position:sticky;top:var(--header-h);height:calc(100vh - var(--header-h));overflow-y:auto;
+.toc-panel{position:sticky;top:var(--header-h);height:calc(100vh - var(--header-h));height:calc(100dvh - var(--header-h));overflow-y:auto;
   padding:26px 18px 60px 8px;border-left:1px solid var(--border-soft)}
 .toc-panel .ttl{font-size:11px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:var(--fg-muted);padding-left:12px;margin-bottom:8px}
 .toc-panel ul{list-style:none;margin:0;padding:0}
@@ -212,13 +213,46 @@ footer.foot a{color:var(--fg-muted)}
 @media(max-width:900px){
   #menuToggle{display:grid}
   .layout{grid-template-columns:minmax(0,1fr)}
-  aside.sidebar{position:fixed;top:var(--header-h);left:0;bottom:0;width:min(84vw,var(--sidebar-w));z-index:58;
-    transform:translateX(-102%);transition:transform .24s ease;box-shadow:var(--shadow-lg)}
+  aside.sidebar{position:fixed;top:var(--header-h);left:0;bottom:0;width:min(84vw,var(--sidebar-w));z-index:58;height:auto;
+    transform:translateX(-102%);transition:transform .24s ease;box-shadow:var(--shadow-lg);
+    padding-bottom:calc(40px + env(safe-area-inset-bottom))}
   aside.sidebar.open{transform:none}
   main.content{padding:20px 16px 70px}
   .doc-title{font-size:23px}
   .brand small{display:none}
   .searchbox kbd{display:none}
+}
+@media(max-width:600px){
+  :root{--header-h:56px}
+  body{font-size:15px}
+  header.topbar{padding:0 10px;gap:8px}
+  .brand{gap:8px}
+  .brand .logo{width:28px;height:28px;font-size:15px;border-radius:8px}
+  .brand b{font-size:14px;max-width:30vw}
+  .iconbtn{width:38px;height:38px}
+  .searchbox{min-width:0}
+  .searchbox input{height:36px;font-size:16px;padding:0 12px 0 34px}
+  main.content{padding:16px 12px 64px}
+  .doc-head{margin-bottom:16px;padding-bottom:14px}
+  .crumb{font-size:11.5px;gap:6px}
+  .crumb code{word-break:break-all}
+  .doc-title{font-size:21px}
+  .doc-desc{font-size:13.5px}
+  .doc-toc{max-height:42vh;overflow-y:auto;padding:12px 14px}
+  .doc-body h1{font-size:21px;margin:26px 0 12px}
+  .doc-body h2{font-size:18px;margin:26px 0 10px}
+  .doc-body h3{font-size:16px;margin:20px 0 8px}
+  .doc-body h4{font-size:14.5px}
+  .doc-body ul,.doc-body ol{padding-left:20px}
+  .doc-body blockquote{padding:10px 12px}
+  .doc-body table{font-size:12.5px}
+  .doc-body th,.doc-body td{padding:8px 10px}
+  .doc-body pre{padding:12px;border-radius:10px}
+  .doc-body pre code{font-size:12px}
+  .doc-body code{font-size:12.5px}
+  .search-panel{top:calc(var(--header-h) + 6px)}
+  #toTop{right:14px;bottom:calc(16px + env(safe-area-inset-bottom));width:38px;height:38px}
+  footer.foot{padding:14px 16px 30px;font-size:12px}
 }
 @media print{
   header.topbar,aside.sidebar,.toc-panel,#toTop,.search-panel,.copybtn{display:none!important}
@@ -532,9 +566,10 @@ footer.foot a{color:var(--fg-muted)}
   });
 
   /* ---------- 抽屉 & 杂项 ---------- */
-  function closeDrawer(){ sidebar.classList.remove('open'); scrim.classList.remove('show'); }
+  function closeDrawer(){ sidebar.classList.remove('open'); scrim.classList.remove('show'); document.body.style.overflow=''; }
+  function openDrawer(){ sidebar.classList.add('open'); scrim.classList.add('show'); document.body.style.overflow='hidden'; }
   document.getElementById('menuToggle').addEventListener('click', function(){
-    sidebar.classList.toggle('open'); scrim.classList.toggle('show', sidebar.classList.contains('open'));
+    if(sidebar.classList.contains('open')) closeDrawer(); else openDrawer();
   });
   scrim.addEventListener('click', closeDrawer);
   document.getElementById('brandHome').addEventListener('click', function(){
@@ -564,6 +599,12 @@ footer.foot a{color:var(--fg-muted)}
   });
 
   /* ---------- 启动 ---------- */
+  function syncViewport(){
+    input.placeholder = window.innerWidth <= 600 ? '搜索文档…' : '搜索全部文档…（支持标题与正文）';
+    if(window.innerWidth > 900 && sidebar.classList.contains('open')) closeDrawer();
+  }
+  window.addEventListener('resize', syncViewport);
+  syncViewport();
   renderNav('');
   if(!location.hash && DOCS[0]) location.replace('#/' + encodeURI(DOCS[0].path));
   route();

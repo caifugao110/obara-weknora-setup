@@ -1,8 +1,8 @@
 # OBARA 知识库系统（WeKnora）部署指南
 
-[![Docs Site](https://github.com/caifugao110/obara-weknora/actions/workflows/docs-site.yml/badge.svg)](https://github.com/caifugao110/obara-weknora/actions/workflows/docs-site.yml)
+[![Docs Site](https://github.com/caifugao110/obara-weknora-setup/actions/workflows/docs-site.yml/badge.svg)](https://github.com/caifugao110/obara-weknora-setup/actions/workflows/docs-site.yml)
 
-> 📖 **在线文档站**：<https://caifugao110.github.io/obara-weknora/> —— 本仓库所有文档（README + `docs/` + 脚本文档）会被自动汇总成一个可检索、带目录的单页网站；**README 或 `docs/` 一有改动，GitHub Actions 会自动重建并发布**，详见 [9.1 文档站自动生成](#91-文档站自动生成)。
+> 📖 **在线文档站**：<https://caifugao110.github.io/obara-weknora-setup/> —— 本仓库所有文档（README + `docs/` + 脚本文档）会被自动汇总成一个可检索、带目录的单页网站；**README 或 `docs/` 一有改动，GitHub Actions 会自动重建并发布**，详见 [9.1 文档站自动生成](#91-文档站自动生成)。
 > 基于腾讯开源项目 [WeKnora](https://github.com/Tencent/WeKnora)（MIT 协议）搭建的企业内部知识库系统，用于公司内部文档、规范、技术资料的沉淀、语义检索与 AI RAG 智能问答。
 
 | 项目信息 | 内容 |
@@ -420,15 +420,19 @@ curl -s -X POST http://127.0.0.1:7997/rerank -H 'Content-Type: application/json'
 
 ### 阶段六：知识库初始化与验证
 
-1. 创建首个知识库（如"设计规范库"）
-2. 导入试点文档（如《电极使用规范.pdf》等技术开发二部常用规范）
+**试点知识库**：焊枪选型知识库（材料见 [`welding-gun-selection-kb/`](welding-gun-selection-kb/welding-gun-kb-overview.md)）
+
+1. 创建知识库「焊枪选型知识库」，Embedding 模型绑定 `bge-m3`
+2. 导入 [`welding-gun-selection-kb/01-knowledge-files/`](welding-gun-selection-kb/01-knowledge-files) 下的 **6 个 Excel 文件**（C 枪 3 个 + X 枪 3 个，共 18,701 行）
 3. 等待解析、切片、向量化完成
-4. 创建自定义 Agent（system_prompt 按知识库逐个配置，完全覆盖默认提示词）
+4. 配置答复约束提示词：将 [`welding-gun-selection-prompt.md`](welding-gun-selection-kb/02-answer-prompt/welding-gun-selection-prompt.md) 全部内容粘贴到知识库的「答复约束提示词」面板并保存（需工作空间已配置 KnowledgeQA 模型，如 `deepseek-flash`）
 5. 端到端验证：
-   - [ ] 文档解析正确（表格、图片、标题层级）
-   - [ ] 语义检索召回准确，答案带溯源引用
-   - [ ] **跨语种检索**：中文提问能命中英文 / 日文原版规范（本项目关键验收点）
-   - [ ] 跨文档问答表现可接受
+   - [ ] 6 个 Excel 全部解析成功，行数与清单一致
+   - [ ] **枪型路由正确**：C 枪提问只命中 C 文件图号，X 枪提问只命中 X 文件图号
+   - [ ] **模糊范围生效**：喉深/喉宽 ±50、加压力 ±500、偏心距离 ±20
+   - [ ] **变压器模糊匹配**：输入「85」命中 ITS85，输入「DB6」命中 DB6 / DB6-100R1
+   - [ ] **输出格式合规**：仅图号逗号分隔（≤50 个），或「未找到符合要求的焊枪」
+   - [ ] 无编造数据，图号均来自文档
    - [ ] 记录首字延迟 / 整体响应时间基线（CPU 环境预期偏慢，仅记录不作为验收项）
 
 ---
@@ -522,7 +526,7 @@ sudo DEEPSEEK_API_KEY='sk-xxxxx' bash scripts/configure-deepseek.sh   # 配置�
 仓库内所有 Markdown（顶层 `README.md`、`docs/**/*.md`、`scripts/*.md`）会由 GitHub Actions 汇总成一个单页文档站：
 
 - **触发时机**：`README.md` / `docs/**` / `scripts/*.md` 发生变更并推送到 `main` 时自动重建；也可在 Actions 页面手动触发（另设每周一兜底重建）。Pull Request 只构建校验，不发布。
-- **发布位置**：GitHub Pages，地址 <https://caifugao110.github.io/obara-weknora/>（首次需在仓库 *Settings → Pages → Build and deployment* 把 Source 设为 **GitHub Actions**）。
+- **发布位置**：GitHub Pages，地址 <https://caifugao110.github.io/obara-weknora-setup/>（首次需在仓库 *Settings → Pages → Build and deployment* 把 Source 设为 **GitHub Actions**）。
 - **页面能力**：左侧分组目录 + 关键词全站搜索（`/` 聚焦）、右侧页内目录滚动高亮、代码高亮与一键复制、深浅色主题（`T` 切换）、响应式与打印友好；文档内的 `.md` 互链自动转成站内跳转，支持 `#/docs/xxx.md` 深链。
 
 本地预览 / 调试：
