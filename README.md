@@ -508,6 +508,9 @@ obara-weknora-setup/
 │   ├── deploy/                      # 【部署流程】阶段一～五环境与组件部署
 │   ├── kb/                          # 【非部署】阶段六知识库初始化、验收、数据转换
 │   └── docs-site/                   # 【非部署】文档站构建
+├── data/                            # 【非部署】多租户部门与人员初始化数据
+├── docs/multi-tenant-design.md      # 【非部署】多租户部门隔离方案（16 部门 + 新门户）
+├── portal/                          # 【非部署】新端口门户（8081）：问答 + 部门/人员/智能体/文档管理
 ├── welding-gun-selection-kb/        # 【非部署】知识库源数据与答复提示词
 ├── .github/workflows/docs-site.yml  # 【非部署】文档站自动发布
 ├── site/                            # 构建产物（自动生成，不入库）
@@ -533,6 +536,12 @@ obara-weknora-setup/
 
 | 文件 | 用途 |
 | --- | --- |
+| `scripts/multi-tenant/init-tenants.sh` | 多租户初始化：一键创建 16 个部门工作空间 + 批量邀请成员（邀请制） |
+| `data/departments-personnel.json` | 16 个部门（NJG×9 + SHA×7）及全部人员清单，含文档管理员标记 |
+| `docs/multi-tenant-design.md` | 多租户部门隔离方案：组织映射、隔离机制、邀请流程、新门户设计与部署步骤 |
+| `portal/index.html` / `styles.css` / `app.js` | 新端口门户（8081）前端：精美简洁的问答 + 部门/人员/智能体/文档管理 |
+| `portal/server.py` | 门户 HTTP 服务 + `/api/*` 反向代理到 WeKnora 后端（解决 CORS） |
+| `portal/start.sh` | 门户启动脚本（支持 `--port` / `--upstream` / `--daemon`） |
 | `scripts/kb/init-welding-gun-kb.sh` | 阶段六：建库 + 绑定模型 + 导入文档 + 创建受管智能体 + 写入检索参数（幂等，支持 `--no-wait` / `--pause` / `--resume` / `--status`） |
 | `scripts/kb/verify-welding-gun-kb.sh` | 阶段六：端到端验收，抽取真实记录自动生成提问并核对图号 |
 | `scripts/kb/build-flat-kb.py` | 阶段六：把宽表重建为「一行一段」自然语言短句，规避 `num_ctx=511` 截断 |

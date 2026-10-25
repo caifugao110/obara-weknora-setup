@@ -1,0 +1,302 @@
+{
+  "_comment": "OBARA 多租户部门与人员初始化数据。每个部门对应一个 WeKnora 工作空间（Tenant）。每部门首位人员为文档管理员（Owner），其余为普通成员（Contributor）。邮箱为占位符 @obara.local，可由管理员替换为公司真实邮箱；邀请制下实际分发的是邀请链接。",
+  "email_domain": "obara.local",
+  "default_role": "contributor",
+  "admin_role": "owner",
+  "locations": [
+    {
+      "code": "NJG",
+      "name": "南京",
+      "departments": [
+        {
+          "code": "NJG-GM",
+          "name": "NJG-总经理室",
+          "members": [
+            { "name": "周泽健", "is_admin": true },
+            { "name": "张怀平" }
+          ]
+        },
+        {
+          "code": "NJG-MGR",
+          "name": "NJG-经理部",
+          "members": [
+            { "name": "李婷", "is_admin": true },
+            { "name": "邹敏" },
+            { "name": "钟冬姑" },
+            { "name": "魏兰兰" }
+          ]
+        },
+        {
+          "code": "NJG-ADM",
+          "name": "NJG-管理部",
+          "members": [
+            { "name": "常青", "is_admin": true },
+            { "name": "张琳" },
+            { "name": "孙婧婧" },
+            { "name": "王园茜" },
+            { "name": "孙显新" },
+            { "name": "于苏闽" },
+            { "name": "张杰" }
+          ]
+        },
+        {
+          "code": "NJG-QA",
+          "name": "NJG-品质保证部",
+          "members": [
+            { "name": "马筱丰", "is_admin": true },
+            { "name": "崔亚峰" },
+            { "name": "包玉玲" },
+            { "name": "蒋婷" },
+            { "name": "骆恒" },
+            { "name": "卢振涛" },
+            { "name": "赵天雨" },
+            { "name": "刘芬" },
+            { "name": "卓秋勇" }
+          ]
+        },
+        {
+          "code": "NJG-SALES",
+          "name": "NJG-营业部",
+          "members": [
+            { "name": "陆方明", "is_admin": true },
+            { "name": "姜雨成" },
+            { "name": "王燕" },
+            { "name": "孙海山" },
+            { "name": "张广奇" },
+            { "name": "齐文景" },
+            { "name": "罗昕" },
+            { "name": "李守健" },
+            { "name": "郭涛" },
+            { "name": "罗本娟" },
+            { "name": "李广亮" },
+            { "name": "孙晓冉" },
+            { "name": "张燕" },
+            { "name": "王兴龙" },
+            { "name": "贾银鑫" },
+            { "name": "王会永" },
+            { "name": "赵丹" },
+            { "name": "魏艳" },
+            { "name": "曹圩圩" },
+            { "name": "熊飞" },
+            { "name": "谢小欢" },
+            { "name": "袁林" },
+            { "name": "张正轩" },
+            { "name": "王宇轩" },
+            { "name": "顾宇" }
+          ]
+        },
+        {
+          "code": "NJG-MFG",
+          "name": "NJG-制造部",
+          "members": [
+            { "name": "冯爱国", "is_admin": true },
+            { "name": "葛全华" },
+            { "name": "周宜华" },
+            { "name": "谢世清" },
+            { "name": "吴宏图" },
+            { "name": "王安" },
+            { "name": "姚凌燕" },
+            { "name": "孙孝荣" },
+            { "name": "王安兵" },
+            { "name": "王莉" },
+            { "name": "何永祥" },
+            { "name": "何丽萍" },
+            { "name": "张黎涛" },
+            { "name": "王永高" },
+            { "name": "藏园园" }
+          ]
+        },
+        {
+          "code": "NJG-DEV1",
+          "name": "NJG-技术开发一部",
+          "members": [
+            { "name": "张杰", "is_admin": true },
+            { "name": "相原直树" },
+            { "name": "刘宇" },
+            { "name": "李文涛" },
+            { "name": "朱偶忠" },
+            { "name": "施春涛" },
+            { "name": "杨琳" },
+            { "name": "王思葳" },
+            { "name": "冯海兰" },
+            { "name": "陈丽萍" },
+            { "name": "倪超" },
+            { "name": "王筠" },
+            { "name": "刘晨艳" },
+            { "name": "钱丽军" },
+            { "name": "夏锦荣" },
+            { "name": "王集忠" },
+            { "name": "郑智文" },
+            { "name": "成中元" },
+            { "name": "强克银" },
+            { "name": "徐涛" },
+            { "name": "吴鹏" },
+            { "name": "应肖云" },
+            { "name": "陈阳" },
+            { "name": "王利民" },
+            { "name": "王卉" },
+            { "name": "曹旺" },
+            { "name": "孙东宝" },
+            { "name": "邸海力汗" },
+            { "name": "李国庆" },
+            { "name": "陈思悠" },
+            { "name": "李文臣" },
+            { "name": "葛霖" },
+            { "name": "杨马飞" },
+            { "name": "胡渊" }
+          ]
+        },
+        {
+          "code": "NJG-PUR",
+          "name": "NJG-购买部",
+          "members": [
+            { "name": "马晏陟", "is_admin": true },
+            { "name": "唐志民" },
+            { "name": "龚礼祥" },
+            { "name": "糜晓健" },
+            { "name": "周金凤" },
+            { "name": "刘鲁宁" },
+            { "name": "周建平" },
+            { "name": "尹翠平" },
+            { "name": "顾岚" },
+            { "name": "徐燕来" }
+          ]
+        },
+        {
+          "code": "NJG-DEV2",
+          "name": "NJG-技术开发二部",
+          "members": [
+            { "name": "张杰", "is_admin": true },
+            { "name": "张祖旺" },
+            { "name": "陈青松" },
+            { "name": "王福跃" },
+            { "name": "张明" },
+            { "name": "葛慧" },
+            { "name": "严新星" },
+            { "name": "孙茂余" },
+            { "name": "高剑" },
+            { "name": "杨虹" },
+            { "name": "张万利" },
+            { "name": "翟世学" },
+            { "name": "戴红琴" },
+            { "name": "许静" },
+            { "name": "陈爱珍" },
+            { "name": "陈大仪" },
+            { "name": "韩同进" },
+            { "name": "侯桂英" },
+            { "name": "张啸" },
+            { "name": "佘鲁明" },
+            { "name": "朱海洋" },
+            { "name": "郁钰" },
+            { "name": "丁代远" },
+            { "name": "周骅" },
+            { "name": "周椿杰" },
+            { "name": "徐绍洋" },
+            { "name": "张艳珍" },
+            { "name": "林慈贤" },
+            { "name": "吴健" },
+            { "name": "朱栋栋" },
+            { "name": "陈浩东" }
+          ]
+        }
+      ]
+    },
+    {
+      "code": "SHA",
+      "name": "上海",
+      "departments": [
+        {
+          "code": "SHA-GM",
+          "name": "SHA-总经理室",
+          "members": [
+            { "name": "周泽健", "is_admin": true },
+            { "name": "张怀平" }
+          ]
+        },
+        {
+          "code": "SHA-MGR",
+          "name": "SHA-经理部",
+          "members": [
+            { "name": "李婷", "is_admin": true },
+            { "name": "匡俭" },
+            { "name": "黄漪清" },
+            { "name": "陈佳绘" }
+          ]
+        },
+        {
+          "code": "SHA-ADM",
+          "name": "SHA-管理部",
+          "members": [
+            { "name": "常青", "is_admin": true },
+            { "name": "孙艳" },
+            { "name": "陈艳" },
+            { "name": "潘剑清" },
+            { "name": "沈旭东" },
+            { "name": "孙显新" },
+            { "name": "江玮玖" }
+          ]
+        },
+        {
+          "code": "SHA-PUR",
+          "name": "SHA-购买部",
+          "members": [
+            { "name": "马晏陟", "is_admin": true },
+            { "name": "李坚" },
+            { "name": "顾朝明" },
+            { "name": "陈蓓丽" },
+            { "name": "黄丽萍" },
+            { "name": "罗婷婷" }
+          ]
+        },
+        {
+          "code": "SHA-QA",
+          "name": "SHA-品质保证部",
+          "members": [
+            { "name": "马筱丰", "is_admin": true },
+            { "name": "张常明" },
+            { "name": "杨晓辉" }
+          ]
+        },
+        {
+          "code": "SHA-SALES",
+          "name": "SHA-营业部",
+          "members": [
+            { "name": "陆方明", "is_admin": true },
+            { "name": "何斌" },
+            { "name": "吴佳梅" },
+            { "name": "沈雨帆" },
+            { "name": "张晟隽" },
+            { "name": "吴露鹭" },
+            { "name": "茅舒" },
+            { "name": "许华俊" },
+            { "name": "梁科研" },
+            { "name": "赵永燕" },
+            { "name": "顾瑜瑾" },
+            { "name": "桑雯怡" },
+            { "name": "朱洪波" },
+            { "name": "张娟" }
+          ]
+        },
+        {
+          "code": "SHA-MFG",
+          "name": "SHA-制造部",
+          "members": [
+            { "name": "冯爱国", "is_admin": true },
+            { "name": "张圣安" },
+            { "name": "岩本诚" },
+            { "name": "胡建中" },
+            { "name": "殷伟青" },
+            { "name": "徐祺" },
+            { "name": "王晓燕" },
+            { "name": "董心金" },
+            { "name": "陈海东" },
+            { "name": "孔令钊" },
+            { "name": "万林" },
+            { "name": "黄汉忠" },
+            { "name": "张斌" }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -1,6 +1,7 @@
 # 工具 / IDE 临时目录
 .workbuddy/
 .trae/
+.screenshots/
 .idea/
 .vscode/
 *.swp
@@ -29,6 +30,9 @@ temp/
 # 自动生成的文档站产物（由 GitHub Actions 构建发布）
 site/
 public/
+
+# 多租户初始化脚本产出（邀请链接汇总，含敏感信息，不入库）
+output/
 
 # 知识库派生数据（由 scripts/kb/build-flat-kb.py 从 Postgres chunks 重建）
 welding-gun-selection-kb/03-flat-knowledge/

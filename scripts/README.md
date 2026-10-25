@@ -1,12 +1,13 @@
 # 脚本索引
 
-本目录按用途分为三类。**部署流程**脚本放在 `deploy/`，**非部署流程**脚本放在 `kb/`（知识库初始化与验收）和 `docs-site/`（文档站构建）。
+本目录按用途分为四类。**部署流程**脚本放在 `deploy/`，**非部署流程**脚本放在 `kb/`（知识库初始化与验收）、`docs-site/`（文档站构建）和 `multi-tenant/`（多租户部门初始化）。
 
 ```
 scripts/
-├── deploy/      # 部署流程：环境与组件部署（README 阶段一～五）
-├── kb/          # 非部署：知识库初始化、验收与数据转换（README 阶段六）
-└── docs-site/   # 非部署：文档站构建（GitHub Pages）
+├── deploy/        # 部署流程：环境与组件部署（README 阶段一～五）
+├── kb/            # 非部署：知识库初始化、验收与数据转换（README 阶段六）
+├── multi-tenant/  # 非部署：多租户部门工作空间与人员初始化（邀请制）
+└── docs-site/     # 非部署：文档站构建（GitHub Pages）
 ```
 
 ## 一、部署流程脚本（`deploy/`）
@@ -177,7 +178,26 @@ sudo bash scripts/deploy/install-rerank.sh --model BAAI/bge-reranker-base --engi
 | `kb/verify-welding-gun-kb.sh` | 端到端验收：抽取真实记录自动生成提问 → 调用智能体 → 核对图号 | `sudo ADMIN_PASSWORD='<后台密码>' bash scripts/kb/verify-welding-gun-kb.sh` |
 | `kb/build-flat-kb.py` | 把宽表重建为「一行一段」自然语言短句，规避 `num_ctx=511` 截断（数据取自 Postgres chunks） | `python3 scripts/kb/build-flat-kb.py` |
 
-## 三、非部署脚本（`docs-site/`）
+## 三、非部署脚本（`multi-tenant/`）
+
+多租户部门工作空间与人员初始化，对应主文档《README》多租户方案。这些脚本不改变部署环境，只在已部署完成的 WeKnora 上创建工作空间与邀请成员。
+
+| 脚本 | 用途 | 执行命令 |
+| --- | --- | --- |
+| `multi-tenant/init-tenants.sh` | 读取 `data/departments-personnel.json`，一键创建 16 个部门工作空间并批量邀请成员（文档管理员=Owner，其余=Contributor），输出邀请链接汇总 | `sudo ADMIN_PASSWORD='<后台密码>' bash scripts/multi-tenant/init-tenants.sh` |
+
+常用参数：
+
+```bash
+sudo bash scripts/multi-tenant/init-tenants.sh --dry-run            # 只打印计划，不调用 API
+sudo bash scripts/multi-tenant/init-tenants.sh --only-dept NJG-DEV2 # 只处理指定部门
+sudo bash scripts/multi-tenant/init-tenants.sh --base-url http://192.168.227.133:8080
+```
+
+> 前置条件：WeKnora 已运行、管理员账号已创建、建议先开启 RBAC（`.env` 中 `WEKNORA_TENANT_ENABLE_RBAC=true`）。
+> 邀请链接汇总输出到 `output/invitations-<时间戳>.txt`，由管理员分发给各部门文档管理员。
+
+## 四、非部署脚本（`docs-site/`）
 
 文档站构建，与部署环境无关，仅用于本地预览与 GitHub Actions 发布。
 
@@ -186,7 +206,7 @@ sudo bash scripts/deploy/install-rerank.sh --model BAAI/bge-reranker-base --engi
 | `docs-site/build-docs-site.py` | 扫描仓库 Markdown → 渲染单页静态站点（输出到 `site/`） | `python3 scripts/docs-site/build-docs-site.py` |
 | `docs-site/docs-site-template.html` | 文档站页面模板（侧栏导航、页内目录、深浅色主题） | 由 `build-docs-site.py` 读取 |
 
-## 四、部署脚本常见问题
+## 五、部署脚本常见问题
 
 | 现象 | 处理 |
 | --- | --- |

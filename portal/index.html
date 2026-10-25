@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>OBARA 知识问答平台</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <!-- 登录页 -->
+  <div id="login-page" class="login-page">
+    <div class="login-card">
+      <div class="login-logo">
+        <div class="logo-icon">OB</div>
+        <h1>OBARA 知识问答平台</h1>
+        <p class="login-subtitle">企业内部文档智能问答与知识管理</p>
+      </div>
+      <form id="login-form" class="login-form">
+        <div class="form-group">
+          <label>邮箱</label>
+          <input type="email" id="login-email" placeholder="请输入邮箱" required />
+        </div>
+        <div class="form-group">
+          <label>密码</label>
+          <input type="password" id="login-password" placeholder="请输入密码" required />
+        </div>
+        <button type="submit" class="btn btn-primary btn-block">登 录</button>
+        <p class="login-hint">尚未注册？请向部门文档管理员索取邀请链接</p>
+      </form>
+    </div>
+  </div>
+
+  <!-- 主应用 -->
+  <div id="app" class="app hidden">
+    <!-- 顶部栏 -->
+    <header class="topbar">
+      <div class="topbar-left">
+        <button class="sidebar-toggle" onclick="toggleSidebar()">☰</button>
+        <span class="brand">OBARA 知识平台</span>
+      </div>
+      <div class="topbar-center">
+        <div class="tenant-switcher">
+          <label>当前部门：</label>
+          <select id="tenant-select" onchange="switchTenant(this.value)">
+            <option value="">加载中...</option>
+          </select>
+        </div>
+      </div>
+      <div class="topbar-right">
+        <span id="user-name" class="user-name">用户</span>
+        <div class="user-avatar" id="user-avatar">U</div>
+        <button class="btn-icon" title="退出" onclick="logout()">⏻</button>
+      </div>
+    </header>
+
+    <!-- 侧边栏 -->
+    <aside id="sidebar" class="sidebar">
+      <nav class="nav-menu">
+        <a class="nav-item active" data-page="chat" onclick="showPage('chat')">
+          <span class="nav-icon">💬</span><span>问答</span>
+        </a>
+        <a class="nav-item" data-page="departments" onclick="showPage('departments')">
+          <span class="nav-icon">🏢</span><span>部门管理</span>
+        </a>
+        <a class="nav-item" data-page="members" onclick="showPage('members')">
+          <span class="nav-icon">👥</span><span>人员管理</span>
+        </a>
+        <a class="nav-item" data-page="agents" onclick="showPage('agents')">
+          <span class="nav-icon">🤖</span><span>智能体管理</span>
+        </a>
+        <a class="nav-item" data-page="documents" onclick="showPage('documents')">
+          <span class="nav-icon">📄</span><span>文档管理</span>
+        </a>
+      </nav>
+      <div class="sidebar-footer">
+        <span class="version">v1.0.0</span>
+      </div>
+    </aside>
+
+    <!-- 主内容区 -->
+    <main id="main-content" class="main-content">
+      <!-- 问答页 -->
+      <section id="page-chat" class="page active">
+        <div class="chat-layout">
+          <div class="chat-sidebar">
+            <div class="chat-sidebar-header">
+              <h3>智能体</h3>
+              <button class="btn-icon-sm" title="刷新" onclick="loadAgentsForChat()">↻</button>
+            </div>
+            <div id="agent-list" class="agent-list">
+              <div class="empty-tip">加载中...</div>
+            </div>
+          </div>
+          <div class="chat-main">
+            <div id="chat-header" class="chat-header">
+              <span class="chat-agent-name">请选择智能体</span>
+            </div>
+            <div id="chat-messages" class="chat-messages">
+              <div class="chat-placeholder">
+                <div class="chat-placeholder-icon">💡</div>
+                <p>选择左侧智能体，开始向部门知识库提问</p>
+              </div>
+            </div>
+            <div class="chat-input-area">
+              <textarea id="chat-input" placeholder="输入问题，Enter 发送，Shift+Enter 换行..." rows="1"></textarea>
+              <button class="btn btn-primary btn-send" onclick="sendMessage()">发送</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 部门管理页 -->
+      <section id="page-departments" class="page">
+        <div class="page-header">
+          <h2>部门管理</h2>
+          <button class="btn btn-primary" onclick="showCreateTenantModal()">+ 新建部门</button>
+        </div>
+        <div class="card">
+          <div id="tenant-table" class="data-table">加载中...</div>
+        </div>
+      </section>
+
+      <!-- 人员管理页 -->
+      <section id="page-members" class="page">
+        <div class="page-header">
+          <h2>人员管理 — <span id="members-dept-name" class="muted">当前部门</span></h2>
+          <button class="btn btn-primary" onclick="showInviteModal()">+ 邀请成员</button>
+        </div>
+        <div class="card">
+          <h3 class="section-title">已加入成员</h3>
+          <div id="member-table" class="data-table">加载中...</div>
+        </div>
+        <div class="card">
+          <h3 class="section-title">待处理邀请</h3>
+          <div id="invitation-table" class="data-table">加载中...</div>
+        </div>
+      </section>
+
+      <!-- 智能体管理页 -->
+      <section id="page-agents" class="page">
+        <div class="page-header">
+          <h2>智能体管理</h2>
+          <button class="btn btn-primary" onclick="showAgentModal()">+ 新建智能体</button>
+        </div>
+        <div class="card">
+          <div id="agent-table" class="data-table">加载中...</div>
+        </div>
+      </section>
+
+      <!-- 文档管理页 -->
+      <section id="page-documents" class="page">
+        <div class="page-header">
+          <h2>文档管理</h2>
+          <button class="btn btn-primary" onclick="showKbModal()">+ 新建知识库</button>
+        </div>
+        <div class="card">
+          <h3 class="section-title">知识库列表</h3>
+          <div id="kb-table" class="data-table">加载中...</div>
+        </div>
+        <div id="kb-detail" class="card hidden">
+          <div class="page-header">
+            <h3 id="kb-detail-title">文档列表</h3>
+            <div>
+              <label class="btn btn-secondary">
+                📎 上传文档
+                <input type="file" id="doc-upload" multiple style="display:none" onchange="uploadDocuments(this)" />
+              </label>
+              <button class="btn btn-ghost" onclick="closeKbDetail()">返回</button>
+            </div>
+          </div>
+          <div id="doc-table" class="data-table">加载中...</div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- 通用弹窗 -->
+  <div id="modal-overlay" class="modal-overlay hidden" onclick="closeModal(event)">
+    <div class="modal" onclick="event.stopPropagation()">
+      <div class="modal-header">
+        <h3 id="modal-title">标题</h3>
+        <button class="btn-icon" onclick="closeModal()">✕</button>
+      </div>
+      <div id="modal-body" class="modal-body"></div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" onclick="closeModal()">取消</button>
+        <button id="modal-confirm" class="btn btn-primary">确认</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast -->
+  <div id="toast" class="toast hidden"></div>
+
+  <script src="/app.js"></script>
+</body>
+</html>
