@@ -1,5 +1,8 @@
 # OBARA 知识库系统（WeKnora）部署指南
 
+[![Docs Site](https://github.com/caifugao110/obara-weknora/actions/workflows/docs-site.yml/badge.svg)](https://github.com/caifugao110/obara-weknora/actions/workflows/docs-site.yml)
+
+> 📖 **在线文档站**：<https://caifugao110.github.io/obara-weknora/> —— 本仓库所有文档（README + `docs/` + 脚本文档）会被自动汇总成一个可检索、带目录的单页网站；**README 或 `docs/` 一有改动，GitHub Actions 会自动重建并发布**，详见 [9.1 文档站自动生成](#91-文档站自动生成)。
 > 基于腾讯开源项目 [WeKnora](https://github.com/Tencent/WeKnora)（MIT 协议）搭建的企业内部知识库系统，用于公司内部文档、规范、技术资料的沉淀、语义检索与 AI RAG 智能问答。
 
 | 项目信息 | 内容 |
@@ -66,7 +69,7 @@
 | --- | --- | --- |
 | 向量模型（Embedding） | **本地 Ollama：`embeddinggemma:300m` 与 `bge-m3` 二选一（导库前 A/B 定夺）** | `bge-m3`：567M / 1024 维 / 8K 上下文，100+ 语种、跨语种检索强（榜单 `NDCG@10` 0.7095，#16）；`embeddinggemma:300m`：300M / 768 维 / 2K 上下文（`NDCG@10` 0.7500，#8，较 bge-m3 高约 5.7%，CPU 更省）。最终以跨语种用例实测为准，流程见阶段三 |
 | 对话模型（LLM） | **DeepSeek API：`deepseek-flash`（快速问答）/ `deepseek-v4-pro`（智能推理）** | 纯 CPU 本地推理过慢，对话走 API 保证可用性；问答时仅发送检索片段。`deepseek-flash` 即 DeepSeek-V4.1-Flash，智能推理榜 #5、快速问答榜 #5，为合规前提下可选最优档位 |
-| 重排模型（Rerank） | **启用**：本地 `Qwen/Qwen3-Reranker-0.6B`（首选）或 `BAAI/bge-reranker-v2-m3`（备选） | 榜单显示精排可将 `NDCG@10` 由 0.8011 提升至 0.8361（+4.4%），弱 Embedding 收益更大。Ollama **不提供** rerank 能力，需单独起本地 rerank 服务容器（见阶段五）；**禁用公有 rerank API** |
+| 重排模型（Rerank） | **已启用**：本地 `BAAI/bge-reranker-v2-m3`（备选转正，阶段五已落地） | 榜单显示精排可将 `NDCG@10` 由 0.8011 提升至 0.8361（+4.4%），弱 Embedding 收益更大。首选的 `Qwen/Qwen3-Reranker-0.6B` 因服务镜像内置 transformers 不识别 `qwen3` 架构暂不可用（详见阶段五与部署记录）。Ollama **不提供** rerank 能力，本方案单独起本地 rerank 服务容器（阶段五）；**禁用公有 rerank API** |
 
 ### 2.2 检索参数（对齐榜单评测配置）
 
@@ -94,6 +97,8 @@
 | 操作系统 | Ubuntu 22.04.5 LTS | 预装 Docker 环境 |
 | 网络 | 内网固定 IP（待分配）+ 临时外网权限 | 外网仅用于拉取模型文件，验证完成后回收 |
 
+> ⚠️ **实测资源与规划不一致**：部署机实测 CPU 仅 4 核在线（`nproc=4`，Xeon E5-2676 v3 @ 2.4GHz）、内存 8 GB（规划 8 核 / 32 GB）。内存余量有限，Ollama 已通过 `KEEP_ALIVE=10m`、`MAX_LOADED_MODELS=2` 限制常驻占用。**需与信息课核对虚机实际分配规格**，二期 GPU/大模型评估也依赖此项。
+
 ### 3.2 网络策略（信息课侧）
 
 - [ ] 内网网段部署，分配内网域名 / IP
@@ -108,7 +113,7 @@
 
 > 以下为整体流程概览，每一步的详细操作将在后续章节/文档中补充完善。
 >
-> 📄 **阶段一（Docker 环境）与阶段二（WeKnora 部署）的已实际执行记录**——含具体命令、踩坑原因与验证结果——见 [`docs/deployment-log.md`](docs/deployment-log.md)。
+> 📄 **阶段一（Docker 环境）、阶段二（WeKnora 部署）与阶段三（Ollama 本地向量模型）的已实际执行记录**——含具体命令、踩坑原因与验证结果——见 [`docs/deployment-log.md`](docs/deployment-log.md)。
 
 ### 阶段一：虚机与系统准备（信息课 + 业务侧）
 
@@ -146,7 +151,7 @@ sudo apt update && sudo apt upgrade -y
 
 #### 1.2 安装 Docker 环境
 
-推荐使用仓库自带脚本，自动完成 GPG 公钥、APT 源、镜像加速器和日志轮转配置。脚本详细说明见 [scripts/README.md](scripts/README.md)。
+推荐使用仓库自带脚本，自动完成 GPG 公钥、APT 源、镜像加速器和日志轮转配置。脚本详细说明见 [scripts/deployment-scripts.md](scripts/deployment-scripts.md)。
 
 ```bash
 # 1) 安装 Docker CE + Compose 插件（清华源优先，失败回退官方源）
@@ -266,19 +271,40 @@ curl -I http://localhost:8080   # 端口以 .env 中实际配置为准
 ### 阶段三：部署本地向量模型（Ollama）
 
 ```bash
-# 1. 安装 Ollama（或以容器方式运行）
+# 方式 A（本仓脚本，推荐）：安装 Ollama 服务 + 拉取模型，幂等可重跑
+sudo bash scripts/install-ollama.sh                                  # 默认拉取 bge-m3
+sudo bash scripts/install-ollama.sh --models "bge-m3 embeddinggemma:300m"   # A/B 前补齐候选
+sudo bash scripts/install-ollama.sh --skip-models                    # 只装服务
+
+# 方式 B（官方原命令，需直连 GitHub）：ollama.com/install.sh 会 307 跳到 GitHub Release，
+#        本机 GitHub 直连超时，故作为备选，脚本内已自动尝试各下载源
 curl -fsSL https://ollama.com/install.sh | sh
 
-# 2. 拉取两个候选向量模型（均为小模型，8 核 CPU 可跑）
+# 拉取候选向量模型（均为小模型，4~8 核 CPU 可跑）
 ollama pull bge-m3                  # 1024 维 / 8K 上下文 / 100+ 语种，跨语种检索强
 ollama pull embeddinggemma:300m     # 768 维 / 2K 上下文，榜单 NDCG@10 更高、更省资源
 
-# 3. 验证
+# 验证
 ollama list
 curl http://localhost:11434/api/embeddings -d '{"model":"bge-m3","prompt":"测试"}'
 ```
 
+**本次实际部署结果**
+
+| 项 | 实际值 |
+| --- | --- |
+| Ollama 版本 | `0.17.5`，原生 systemd 服务（`active` + `enabled`） |
+| 安装路径 | 二进制 `/usr/bin/ollama`，运行库 `/usr/lib/ollama`（含 GPU runner，4.3 GB） |
+| 模型目录 / 监听 | `/opt/ollama/models` / `0.0.0.0:11434` |
+| 已拉取模型 | `bge-m3:latest` 1.2 GB（566.70M 参数 / 8192 上下文 / **1024 维** / F16） |
+| 内存约束配置 | `OLLAMA_KEEP_ALIVE=10m`、`OLLAMA_MAX_LOADED_MODELS=2`（本机实测仅 8 GB 内存） |
+| Embedding 性能 | 单条短句 0.34~0.45s（热模型，纯 CPU） |
+| 跨语种实测 | 中↔日 0.9578、中↔英 0.7291、无关句 0.32（余弦相似度，见部署记录） |
+| 容器连通性 | WeKnora-app 内 `curl http://192.168.227.133:11434/api/version` 通过 → 阶段四填宿主 IP |
+| 未拉取 | `embeddinggemma:300m`（A/B 候选项，导库前按需补拉，见下方 A/B 流程） |
+
 > 选型依据见 2.1 节；`nomic-embed-text`（768 维）中文效果偏弱，`bge-large-zh-v1.5` 仅支持 512 token 且仅中文，均不采用。
+> 📄 执行过程、踩坑与完整验证数据见 [`docs/deployment-log.md` 三、阶段三](docs/deployment-log.md)。
 
 **⚠️ 导库前必须完成 A/B 定稿（换 Embedding = 全量重向量化，代价高）**
 
@@ -290,35 +316,107 @@ curl http://localhost:11434/api/embeddings -d '{"model":"bge-m3","prompt":"测�
 
 ### 阶段四：配置 DeepSeek 对话模型
 
-1. 在 WeKnora 管理后台 → 模型管理，添加模型供应商
-2. 类型选择 OpenAI 兼容 API，填入：
-   - API Base：`https://api.deepseek.com`（Anthropic 格式可用 `https://api.deepseek.com/anthropic`）
-   - API Key：DeepSeek 密钥（**密钥仅存服务器 `.env` 或后台，不入 Git、不入文档**）
+```bash
+# 一键配置（幂等，可重复执行）：注册 DeepSeek 对话模型 + 本地 Ollama 向量模型，并验证连通性
+sudo DEEPSEEK_API_KEY='sk-xxxxx' bash scripts/configure-deepseek.sh
+
+# 常用参数
+sudo bash scripts/configure-deepseek.sh --api-key 'sk-xxxxx'      # 显式传入密钥
+sudo bash scripts/configure-deepseek.sh --skip-verify          # 只注册，不做上游调用
+```
+
+**手工配置要点**（在管理后台 → 模型管理 → 添加模型）：
+
+1. 模型供应商选择 **DeepSeek**（底层为 OpenAI 兼容接口，`api=openai-completions`）
+2. 填入：
+   - API Base：`https://api.deepseek.com/v1`（Anthropic 格式可用 `https://api.deepseek.com/anthropic`）
+   - API Key：DeepSeek 密钥（**密钥仅存服务器，不入 Git、不入文档**）
    - 模型名：
      - 快速问答模式 → **`deepseek-flash`**（即 DeepSeek-V4.1-Flash，榜单智能推理 #5 / 快速问答 #5）
      - 智能推理模式 → **`deepseek-v4-pro`**（复杂多跳问题）
 
    > ⚠️ 旧模型名 `deepseek-chat`（V3 系列）已过时，不要再填；`deepseek-v4-flash`、`deepseek-v4-flash-vision-exp` 等旧别名对应模型已下线。
-3. 连通性测试通过后，把 `deepseek-flash` 设为默认对话模型；简单问题走"快速问答"、复杂问题走"智能推理"
-4. Embedding 模型选择阶段三 A/B 定稿的 Ollama 本地模型（地址 `http://<本机IP>:11434`）
+3. Embedding 模型选择阶段三 A/B 定稿的 Ollama 本地模型：`source=local`，Base URL 填 **`http://192.168.227.133:11434`**（容器内已验证可达；不可填 `localhost`，容器视角指向自身），模型名 `bge-m3`，维度 `1024`
+4. 连通性验证：后台模型详情页"调试"会发起真实上游调用（**产生费用**），返回 `ok=true` 即通过
+
+**本次实际配置结果**
+
+| 模型 | 类型 | source | provider | Base URL | 状态 |
+| --- | --- | --- | --- | --- | --- |
+| `deepseek-flash` | KnowledgeQA | `remote` | `deepseek` | `https://api.deepseek.com/v1` | ✅ active |
+| `deepseek-v4-pro` | KnowledgeQA | `remote` | `deepseek` | `https://api.deepseek.com/v1` | ✅ active |
+| `bge-m3` | Embedding | `local` | `generic` | `http://192.168.227.133:11434` | ✅ active（1024 维） |
+
+> 阶段五注册的 Rerank 模型见下一节。
+
+**三个关键坑（务必留意）**
+
+| # | 现象 | 根因 | 处理 |
+| --- | --- | --- | --- |
+| 1 | 创建模型报 `Base URL 未通过安全校验：direct IP address is not allowed` | WeKnora 对模型 Base URL 做 SSRF 校验，默认禁止裸 IP | 在 `/opt/obara/weknora/.env` 追加 `SSRF_WHITELIST_EXTRA=<本机IP>,127.0.0.1,localhost,host.docker.internal,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16`，并 `docker compose up -d --force-recreate app` |
+| 2 | 模型状态为 `download_failed` | `source` 填成厂商名（如 `deepseek`）会被判定为"本地模型"并触发 Ollama 下载 | 远程 API 模型的 `source` 必须填 **`remote`**，厂商写在 `provider` 字段 |
+| 3 | 新加的 `.env` 变量不生效 | `env_file` 只在**创建容器**时注入，`restart` 不重新读取 | 必须用 `docker compose up -d --force-recreate app`（同上第 1 条） |
+
+> 📌 **更正**：部署记录 3.4 节此前记载"容器内未自动解析 `host.docker.internal`"。本次复核实测**可正常解析**（`docker-compose.yml` 的 `app` 服务已内置 `extra_hosts: host.docker.internal:host-gateway`）。`OLLAMA_BASE_URL` 保持 `http://host.docker.internal:11434` 不变即可工作；表中向量模型行显式填写宿主 IP 仅为与文档口径一致，两者均可达。
+
+> 📌 **关于"默认对话模型"**：WeKnora v0.8.3 的模型记录**没有独立的"设为默认"接口**，`is_default` 字段在建表后基本未被读取。实际的模型绑定发生在阶段六——创建知识库时指定 `embedding_model_id`，创建 Agent 时指定 `chat_model_id`。因此阶段四只需保证模型注册成功且连通，"默认"在阶段六落地。
 
 ### 阶段五：部署本地 Rerank 重排服务（推荐启用）
 
 > Ollama 不提供 rerank 能力，需单独起一个本地 rerank 服务容器；**禁止使用公有 rerank API**（检索片段同样属于内部资料，与"数据不出内网"要求冲突）。
 
-```bash
-# 以 infinity 为例（OpenAI 兼容 /rerank 接口，CPU 可跑 0.6B 级模型）
-docker run -d --name rerank -p 7997:7997 \
-  michaelfeil/infinity:<固定版本tag> \
-  --model Qwen/Qwen3-Reranker-0.6B --port 7997
+**实际选型（2026-10-25 落地）**
 
-# 备选：BAAI/bge-reranker-v2-m3（568M，社区验证最多，榜单 NDCG@10 0.8075）
+| 项 | 选型 | 说明 |
+| --- | --- | --- |
+| 服务框架 | `michaelf34/infinity:0.0.78-cpu` | 提供 Cohere 兼容的 `/rerank` 接口，与 WeKnora `internal/models/api/cohererank` 完全对齐 |
+| 模型 | **`BAAI/bge-reranker-v2-m3`**（568M，fp32） | 榜单 `NDCG@10 0.8075`，中文/英文/日文跨语种能力好 |
+| 首选模型未采用的原因 | `Qwen/Qwen3-Reranker-0.6B` | 该镜像内置的 transformers **不识别 `qwen3` 架构**（见部署记录第五章），需等待更新的 infinity 版本 |
+| 部署形态 | 独立容器 `weknora-rerank`，端口 `7997` | 权重预先下载到本机目录后**只读挂载**，容器内离线加载，不依赖容器出站网络 |
+
+**一键部署（含注册与验证）**
+
+```bash
+sudo bash scripts/install-rerank.sh                                  # 下载模型 → 起容器 → 注册 → 验证
+sudo bash scripts/install-rerank.sh --no-register                    # 只部署服务
+sudo bash scripts/install-rerank.sh --recreate --cpus 6 --memory 4g  # 调资源限制后重建
 ```
 
-1. 首次拉取模型需临时出站 HF 权限（同 3.2 节网络策略，拉完收紧）
-2. WeKnora 管理后台 → Rerank 配置：勾选"启用 Rerank 重排模型"，Base URL 填 `http://<本机IP>:7997`，模型名填实际加载的模型
-3. 参数按 2.2 节设置；若 CPU 延迟不可接受，先把候选池压到 20~30、`rerank_top_k=8`
+1. 首次执行需临时出站 HF 权限下载权重（脚本自动选 `hf-mirror.com` → `huggingface.co`，支持断点续传；拉完即收紧）
+2. 脚本会把模型注册到 WeKnora（`type=Rerank`、`source=remote`、`provider=generic`、Base URL `http://<本机IP>:7997`），因此仍需保持 `.env` 的 `SSRF_WHITELIST_EXTRA` 含本机 IP
+3. 参数按 2.2 节设置；**候选池建议压到 20 条以内**（本机实测见下表），`rerank_top_k=8`
 4. 记录开启 / 关闭 rerank 两组 P50 延迟与召回质量差异，作为是否保留的依据
+
+**WeKnora 注册结果**（本次实际）
+
+| 模型 | 类型 | source | provider | Base URL | 状态 |
+| --- | --- | --- | --- | --- | --- |
+| `bge-reranker-v2-m3` | Rerank | `remote` | `generic` | `http://192.168.227.133:7997` | ✅ active（`/models/{id}/debug` → `ok=true`，1.3 s / 3 条候选） |
+
+**延迟基线**（本机 x86_64 CPU，容器 6 核 / batch 8，含 HTTP 往返）
+
+| 候选片段数 | 端到端耗时 | 折算每条 |
+| --- | --- | --- |
+| 5 | 1.81 s | 361 ms |
+| 10 | 3.91 s | 391 ms |
+| **20** | **6.77 s** | 339 ms |
+| 30 | 9.78 s | 326 ms |
+| 50 | 16.24 s | 325 ms |
+
+> 同样的 2 核配置下吞吐低约 35%（20 条 ~10.3s），说明该服务是**算力敏感**型：扩核即线性提速。
+> 若阶段六实测 P50 不可接受，优先把候选池压到 10~20 条，其次给容器加核；二期上 GPU 节点时换 `infinity:0.0.7x` GPU 镜像即可。
+
+**运维要点**
+
+```bash
+docker logs -f weknora-rerank                       # 查看加载/推理日志
+curl -s http://127.0.0.1:7997/models                # 能力列表（出现 capabilities:["rerank"] 即就绪）
+docker stats weknora-rerank                         # 内存占用（实测约 2 GB）
+curl -s -X POST http://127.0.0.1:7997/rerank -H 'Content-Type: application/json' \
+  -d '{"model":"bge-reranker-v2-m3","query":"电极的使用寿命是多久？","documents":["电极需800小时更换","员工报销流程"]}'
+```
+
+> ⚠️ 只探 `/health` 会得到 `{"unix":...}` 的**假就绪**（模型尚未加载完也会返回），就绪判定请以 `/models` 为准。
 
 ### 阶段六：知识库初始化与验证
 
@@ -354,10 +452,12 @@ docker run -d --name rerank -p 7997:7997 \
 | 阶段 | 内容 | 状态 |
 | --- | --- | --- |
 | 1. 需求评审 & 资源开通 | 方案对齐、虚机开通、网络与账号对接 | ⏳ 进行中（虚机配置已确认） |
-| 2. 试点部署与调试 | 系统部署、导入设计规范、权限、RAG、模型连通调试 | ⏳ 进行中（Docker 环境 + WeKnora v0.8.3 已部署完成，见 [`docs/deployment-log.md`](docs/deployment-log.md)） |
+| 2. 试点部署与调试 | 系统部署、导入设计规范、权限、RAG、模型连通调试 | ⏳ 进行中（Docker 环境 + WeKnora v0.8.3 + Ollama/`bge-m3` + DeepSeek 对话模型 + 本地 Rerank 服务已完成，见 [`docs/deployment-log.md`](docs/deployment-log.md)） |
 | 3. 部门灰度试用 | 内部收集反馈、问题整改、安全复测 | ⏸️ 待开始 |
 | 4. 试点验收 | 联合信息课评审稳定性、安全、审计能力，出具试点报告 | ⏸️ 待开始 |
 | 5. 二期推广 | 评估扩容（含 GPU 推理节点、公有 API 许可），开放至全公司 | ⏸️ 视试点结果 |
+
+> 📌 阶段一～阶段五的交付结果、实测数据与下一步计划汇总见 [`docs/stage-summary.md`](docs/stage-summary.md)。
 
 ---
 
@@ -365,8 +465,10 @@ docker run -d --name rerank -p 7997:7997 \
 
 - [x] 虚机内网 IP / 域名 → 已部署机 `192.168.227.133`（VMware NAT）；正式内网域名 / 固定 IP 仍待信息课分配
 - [x] Embedding 模型最终选型 → 导库前在 `bge-m3` / `embeddinggemma:300m` 间 A/B 定夺（含跨语种用例），定稿后方可全量导入
-- [x] 是否启用本地 Rerank 模型 → **启用**，本地部署 `Qwen3-Reranker-0.6B`；CPU 延迟超标再评估关闭或换 `bge-reranker-v2-m3`
-- [x] WeKnora 部署端口规划 → 已落地：前端 `80`、后端 `8080`；rerank 服务预留 `7997`，部署阶段五前需确认未被占用
+- [x] 是否启用本地 Rerank 模型 → **已启用并完成部署**：`bge-reranker-v2-m3`（首选 `Qwen3-Reranker-0.6B` 因服务镜像内置 transformers 不识别 `qwen3` 架构暂不可用）；阶段六按 P50 决定保留与否
+- [x] WeKnora 部署端口规划 → 已落地：前端 `80`、后端 `8080`、Ollama `11434`、Rerank 服务 `7997`（均未冲突）
+- [x] Embedding 模型就位 → `bge-m3` 已拉取并验证可用（1024 维 / 8192 上下文）；**A/B 定稿（与 `embeddinggemma:300m` 对比）仍需在导库前完成**
+- [x] DeepSeek 对话模型配置 → **已完成**：`deepseek-flash`（快速问答）+ `deepseek-v4-pro`（智能推理）均已注册并 `active`，上游调用验证通过；密钥存于服务器 `.secrets/`（不入 Git）
 - [ ] 检索参数按 2.2 节落地（chunk_size=1000 / overlap=200 / top_k / threshold），建库时逐项核对
 - [ ] SSO / LDAP 对接方案（一期可先用 WeKnora 独立账号，二期对接统一账号）
 - [ ] 备份策略细节（频率、保留周期、恢复演练）
@@ -390,11 +492,19 @@ docker run -d --name rerank -p 7997:7997 \
 | 文件 | 用途 |
 | --- | --- |
 | `README.md` | 部署方案、实施计划与验收清单（本文件） |
-| `docs/deployment-log.md` | 阶段一（Docker 环境）与阶段二（WeKnora）的**实际执行记录**：环境基线、具体命令、踩坑根因、验证结果、运维与备份手册 |
+| `docs/deployment-log.md` | 阶段一（Docker 环境）、阶段二（WeKnora）与阶段三（Ollama）的**实际执行记录**：环境基线、具体命令、踩坑根因、验证结果、运维与备份手册 |
+| `docs/stage-summary.md` | 阶段一～阶段三的**精简阶段总结**（进度、交付结果、实测数据、下一步与遗留事项），适合汇报与交接 |
 | `scripts/install-docker.sh` | 一键安装 Docker CE + Compose 插件，配置镜像加速器、日志轮转并验证 |
 | `scripts/fix-docker-env.sh` | 修复 APT 源域名、重新探测加速器、重启 Docker 使 `daemon.json` 生效 |
 | `scripts/configure-mirrors.sh` | 国内镜像加速器自动探测与配置（默认只写配置，`--apply` 重启生效） |
-| `scripts/README.md` | 脚本的使用前提、执行步骤与常见问题 |
+| `scripts/install-ollama.sh` | 阶段三：安装 Ollama 服务（systemd）并拉取 Embedding 模型，内置多下载源回退 |
+| `scripts/configure-deepseek.sh` | 阶段四：注册 DeepSeek 对话模型（快速问答 / 智能推理）与本地 Ollama 向量模型，并做上游连通性验证 |
+| `scripts/deployment-scripts.md` | 脚本的使用前提、执行步骤与常见问题 |
+| `scripts/install-rerank.sh` | 阶段五：部署本地 Rerank 服务（infinity + `bge-reranker-v2-m3`）并注册到 WeKnora |
+| `scripts/build-docs-site.py` | 文档站生成器：扫描仓库内 Markdown → 渲染为单页静态站点（输出到 `site/`） |
+| `scripts/docs-site-template.html` | 文档站页面模板（侧栏导航、全站搜索、页内目录、深浅色主题） |
+| `.github/workflows/docs-site.yml` | GitHub Actions：文档变更时自动构建文档站并发布到 GitHub Pages |
+| `site/` | 构建产物（自动生成，**不入库**） |
 | `LICENSE` | MIT 开源协议 |
 
 脚本速查：
@@ -403,7 +513,27 @@ docker run -d --name rerank -p 7997:7997 \
 sudo bash scripts/install-docker.sh      # 首次安装
 sudo bash scripts/fix-docker-env.sh      # 配置未生效 / 源或加速器异常
 sudo bash scripts/configure-mirrors.sh   # 重新探测国内镜像加速器并写入配置
+sudo bash scripts/install-ollama.sh      # 安装 Ollama 并拉取向量模型（阶段三）
+sudo DEEPSEEK_API_KEY='sk-xxxxx' bash scripts/configure-deepseek.sh   # 配置对话模型（阶段四）
 ```
+
+### 9.1 文档站自动生成
+
+仓库内所有 Markdown（顶层 `README.md`、`docs/**/*.md`、`scripts/*.md`）会由 GitHub Actions 汇总成一个单页文档站：
+
+- **触发时机**：`README.md` / `docs/**` / `scripts/*.md` 发生变更并推送到 `main` 时自动重建；也可在 Actions 页面手动触发（另设每周一兜底重建）。Pull Request 只构建校验，不发布。
+- **发布位置**：GitHub Pages，地址 <https://caifugao110.github.io/obara-weknora/>（首次需在仓库 *Settings → Pages → Build and deployment* 把 Source 设为 **GitHub Actions**）。
+- **页面能力**：左侧分组目录 + 关键词全站搜索（`/` 聚焦）、右侧页内目录滚动高亮、代码高亮与一键复制、深浅色主题（`T` 切换）、响应式与打印友好；文档内的 `.md` 互链自动转成站内跳转，支持 `#/docs/xxx.md` 深链。
+
+本地预览 / 调试：
+
+```bash
+pip install markdown Pygments
+python3 scripts/build-docs-site.py            # 生成到 ./site
+python3 -m http.server 8000 -d site           # 打开 http://localhost:8000
+```
+
+常用参数：`--output public`（改输出目录）、`--exclude scripts`（排除某批文档）、`--title "XX 文档中心"`（改站点标题）。
 
 ---
 

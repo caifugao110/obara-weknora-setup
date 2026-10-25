@@ -25,3 +25,6 @@ tmp/
 temp/
 *.bak
 ~$*
+
+# 自动生成的文档站产物（由 GitHub Actions 构建发布）
+site/
