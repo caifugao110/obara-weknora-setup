@@ -755,6 +755,63 @@ ADMIN_PASSWORD='<超管密码>' bash scripts/multi-tenant/init-tenants.sh
 
 ---
 
+## 七之三、门户开机自启与一键启停（2026-10-26）
+
+### 背景
+
+虚拟机重启后，WeKnora 容器由 Docker `restart: unless-stopped` 自动拉起，Ollama 也随 systemd 自启，但 8081 门户此前只能手工执行 `bash portal/start.sh`，因此重启后只能访问 8080 后端，门户不可用。
+
+### 方案与落地
+
+新增 `scripts/start-all.sh`（一键启停）与 `scripts/deploy/install-autostart.sh`（安装 systemd 自启），并已在本机执行安装：
+
+| 项 | 结果 |
+| --- | --- |
+| 服务名 | `obara-portal.service` |
+| 运行用户 | `tobin`（仓库目录属主） |
+| 工作目录 | `/home/tobin/Documents/trae_projects/obara-weknora-setup/portal` |
+| 启动命令 | `python3 portal/server.py --port 8081 --upstream http://127.0.0.1:8080` |
+| 依赖顺序 | `After=network-online.target docker.service ollama.service` |
+| 重启策略 | `Restart=always` / `RestartSec=3` |
+| 开机自启 | `enabled` |
+
+同时确认 `docker.service`、`ollama.service` 均为 `enabled`；Rerank 容器 `weknora-rerank` 为 `restart: unless-stopped`，与 compose 容器一致。
+
+### 验证记录
+
+```bash
+systemctl is-enabled obara-portal      # enabled
+systemctl is-active obara-portal       # active
+curl -o /dev/null -w '%{http_code}' http://127.0.0.1:8081/            # 200
+curl -i http://127.0.0.1:8081/api/v1/tenants                        # 401，与直连 8080 一致 → 代理正常
+bash scripts/start-all.sh restart                                    # 停止→启动全链路通过
+bash scripts/start-all.sh status                                     # 容器 / 门户 / 健康检查均正常
+```
+
+Rerank 容器重启后需约 1～2 分钟加载模型，`GET /models` 出现 `capabilities:["rerank"]` 才算就绪；期间门户问答可用，重排能力稍后恢复。
+
+### 日常运维命令
+
+```bash
+# 一键启动 / 状态 / 重启 / 停止（Ollama 保持运行）
+bash scripts/start-all.sh
+bash scripts/start-all.sh status
+bash scripts/start-all.sh restart
+bash scripts/start-all.sh stop
+
+# 门户服务
+sudo systemctl restart obara-portal
+journalctl -u obara-portal -f
+sudo bash scripts/deploy/install-autostart.sh --uninstall   # 卸载自启
+```
+
+> 注意：
+> - 门户直接运行仓库内 `portal/server.py`，**移动仓库目录后需重新执行安装脚本**。
+> - 执行 `start-all.sh stop` 后关机，容器因 `unless-stopped` 不会自动恢复，开机后需执行一次 `bash scripts/start-all.sh`。
+> - 当前 `ufw` 未启用；若后续启用防火墙或安全组，需放行 `8081`、`8080`、`80`。
+
+---
+
 ## 八、安全相关（试点结束后回收）
 
 - `/etc/sudoers.d/tobin-nopasswd`：部署期为便于自动化运维配置的免密 sudo（`NOPASSWD: ALL`），**试点结束后执行 `sudo rm /etc/sudoers.d/tobin-nopasswd` 回收**；所有 sudo 调用仍记录在 `/var/log/auth.log`

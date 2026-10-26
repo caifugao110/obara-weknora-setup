@@ -3,16 +3,20 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>OBARA 知识问答平台</title>
+  <meta name="description" content="OBARA 知识库问答平台 — 企业内部文档智能问答与知识管理" />
+  <title>OBARA 知识库问答平台</title>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%232563eb'/%3E%3Cstop offset='1' stop-color='%231a56db'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='64' height='64' rx='16' fill='url(%23g)'/%3E%3Ctext x='32' y='43' font-size='30' font-family='Helvetica,Arial,sans-serif' font-weight='700' fill='white' text-anchor='middle'%3EOB%3C/text%3E%3C/svg%3E" />
   <link rel="stylesheet" href="/styles.css" />
 </head>
 <body>
-  <!-- 登录页 -->
+  <!-- ============ 登录页 ============ -->
   <div id="login-page" class="login-page">
     <div class="login-shell">
       <section class="login-brand">
-        <div class="brand-mark">OB</div>
-        <h1 class="brand-title">OBARA 知识问答平台</h1>
+        <div class="brand-mark">
+          <span>OB</span>
+        </div>
+        <h1 class="brand-title">OBARA 知识库问答平台</h1>
         <p class="brand-subtitle">企业内部文档智能问答与知识管理</p>
         <ul class="brand-points">
           <li>按部门隔离的知识空间，数据更安全</li>
@@ -24,7 +28,7 @@
       <section class="login-card">
         <header class="login-card-head">
           <h2>欢迎回来</h2>
-          <p>请使用企业邮箱账号登录</p>
+          <p>请使用企业邮箱账号登录 OBARA 知识库问答平台</p>
         </header>
         <form id="login-form" class="login-form">
           <div class="form-group">
@@ -47,7 +51,7 @@
     </footer>
   </div>
 
-  <!-- 邀请注册页（/register?token=...） -->
+  <!-- ============ 邀请注册页（/register?token=...） ============ -->
   <div id="register-page" class="login-page hidden">
     <div class="login-shell login-shell-center">
       <section class="login-card">
@@ -80,148 +84,213 @@
     </footer>
   </div>
 
-  <!-- 主应用 -->
+  <!-- ============ 主应用 ============ -->
   <div id="app" class="app hidden">
     <!-- 顶部栏 -->
     <header class="topbar">
       <div class="topbar-left">
-        <button class="sidebar-toggle" onclick="toggleSidebar()">☰</button>
-        <span class="brand">OBARA 知识平台</span>
+        <button class="icon-btn sidebar-toggle" title="展开/收起侧边栏" onclick="toggleSidebar()">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
+        </button>
+        <div class="brand">
+          <span class="brand-logo">OB</span>
+          <span class="brand-text">OBARA 知识库问答平台</span>
+        </div>
       </div>
+
       <div class="topbar-center">
         <div class="tenant-switcher">
-          <label>当前部门：</label>
+          <svg class="tenant-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18"/><path d="M5 21V7l7-4 7 4v14"/><path d="M9 9h.01M15 9h.01M9 13h.01M15 13h.01M9 17h.01M15 17h.01"/></svg>
+          <label for="tenant-select">当前部门</label>
           <select id="tenant-select" onchange="switchTenant(this.value)">
             <option value="">加载中...</option>
           </select>
         </div>
       </div>
+
       <div class="topbar-right">
-        <span id="user-name" class="user-name">用户</span>
-        <div class="user-avatar" id="user-avatar">U</div>
-        <button class="btn-icon" title="退出" onclick="logout()">⏻</button>
+        <div class="user-box">
+          <div class="user-info">
+            <span id="user-name" class="user-name">用户</span>
+            <span id="user-role" class="role-chip role-chip-none">—</span>
+          </div>
+          <div class="user-avatar" id="user-avatar">U</div>
+          <button class="icon-btn" title="退出登录" onclick="logout()">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5"/><path d="M21 12H9"/></svg>
+          </button>
+        </div>
       </div>
     </header>
 
-    <!-- 侧边栏 -->
-    <aside id="sidebar" class="sidebar">
-      <nav class="nav-menu">
-        <a class="nav-item active" data-page="chat" onclick="showPage('chat')">
-          <span class="nav-icon">💬</span><span>问答</span>
-        </a>
-        <a class="nav-item" data-page="departments" onclick="showPage('departments')">
-          <span class="nav-icon">🏢</span><span>部门管理</span>
-        </a>
-        <a class="nav-item" data-page="members" onclick="showPage('members')">
-          <span class="nav-icon">👥</span><span>人员管理</span>
-        </a>
-        <a class="nav-item" data-page="agents" onclick="showPage('agents')">
-          <span class="nav-icon">🤖</span><span>智能体管理</span>
-        </a>
-        <a class="nav-item" data-page="documents" onclick="showPage('documents')">
-          <span class="nav-icon">📄</span><span>文档管理</span>
-        </a>
-      </nav>
-      <div class="sidebar-footer">
-        <span class="version">v1.0.0</span>
-      </div>
-    </aside>
+    <!-- 主体 -->
+    <div class="app-body">
+      <!-- 侧边栏 -->
+      <aside id="sidebar" class="sidebar">
+        <nav class="nav-menu">
+          <p class="nav-group-title">工作台</p>
+          <a class="nav-item active" data-page="chat" onclick="showPage('chat')">
+            <span class="nav-icon"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.5 8.5 0 0 1-8.5 8.5 8.4 8.4 0 0 1-3.8-.9L3 21l1.9-5.6A8.4 8.4 0 0 1 4 11.5 8.5 8.5 0 0 1 12.5 3 8.5 8.5 0 0 1 21 11.5z"/></svg></span>
+            <span>智能问答</span>
+          </a>
+          <a class="nav-item" data-page="departments" onclick="showPage('departments')">
+            <span class="nav-icon"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M9 8h.01M15 8h.01M9 12h.01M15 12h.01M9 16h6"/></svg></span>
+            <span>部门管理</span>
+          </a>
 
-    <!-- 主内容区 -->
-    <main id="main-content" class="main-content">
-      <!-- 问答页 -->
-      <section id="page-chat" class="page active">
-        <div class="chat-layout">
-          <div class="chat-sidebar">
-            <div class="chat-sidebar-header">
-              <h3>智能体</h3>
-              <button class="btn-icon-sm" title="刷新" onclick="loadAgentsForChat()">↻</button>
-            </div>
-            <div id="agent-list" class="agent-list">
-              <div class="empty-tip">加载中...</div>
-            </div>
+          <div class="nav-group" id="nav-group-admin">
+            <p class="nav-group-title">部门管理</p>
+            <a class="nav-item" data-page="members" onclick="showPage('members')">
+              <span class="nav-icon"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></span>
+              <span>人员管理</span>
+            </a>
+            <a class="nav-item" data-page="agents" onclick="showPage('agents')">
+              <span class="nav-icon"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="10" rx="3"/><circle cx="12" cy="5" r="2"/><path d="M12 7v4M8 16h.01M16 16h.01"/></svg></span>
+              <span>智能体管理</span>
+            </a>
+            <a class="nav-item" data-page="documents" onclick="showPage('documents')">
+              <span class="nav-icon"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg></span>
+              <span>文档管理</span>
+            </a>
           </div>
-          <div class="chat-main">
-            <div id="chat-header" class="chat-header">
-              <span class="chat-agent-name">请选择智能体</span>
-            </div>
-            <div id="chat-messages" class="chat-messages">
-              <div class="chat-placeholder">
-                <div class="chat-placeholder-icon">💡</div>
-                <p>选择左侧智能体，开始向部门知识库提问</p>
+        </nav>
+
+        <div class="sidebar-footer">
+          <span class="brand-line">OBARA 知识库问答平台</span>
+          <span class="version" id="build-version" data-date="26-10-26" data-build="2">当前版本 26-10-26-V2</span>
+        </div>
+      </aside>
+
+      <!-- 主内容区 -->
+      <main id="main-content" class="main-content">
+        <!-- 问答页 -->
+        <section id="page-chat" class="page active">
+          <div class="chat-layout">
+            <aside class="chat-sidebar">
+              <div class="chat-sidebar-head">
+                <div class="chat-sidebar-title">
+                  <h3>智能体</h3>
+                  <p>选择后即可向其绑定的知识库提问</p>
+                </div>
+                <button class="icon-btn" title="刷新智能体列表" onclick="loadAgentsForChat()">
+                  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-3.5-7.1"/><path d="M21 3v6h-6"/></svg>
+                </button>
+              </div>
+              <div id="agent-list" class="agent-list">
+                <div class="empty-tip">加载中...</div>
+              </div>
+            </aside>
+
+            <div class="chat-main">
+              <header class="chat-header">
+                <div class="agent-avatar" id="chat-agent-avatar">智</div>
+                <div class="chat-agent-meta">
+                  <span class="chat-agent-name" id="chat-agent-name">未选择智能体</span>
+                  <span class="chat-agent-sub" id="chat-agent-sub">请从左侧选择一个智能体开始问答</span>
+                </div>
+                <div class="chat-header-actions">
+                  <button class="btn btn-ghost btn-sm" onclick="resetChat()">
+                    <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
+                    新会话
+                  </button>
+                </div>
+              </header>
+
+              <div id="chat-messages" class="chat-messages"></div>
+
+              <div class="chat-input-area">
+                <div class="chat-input-box">
+                  <textarea id="chat-input" placeholder="向本部门知识库提问，Enter 发送，Shift + Enter 换行..." rows="1"></textarea>
+                  <button class="send-btn" id="btn-send" title="发送" onclick="sendMessage()">
+                    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4z"/></svg>
+                  </button>
+                </div>
+                <p class="chat-input-tip">回答基于本部门已入库文档生成，请结合引用来源核对</p>
               </div>
             </div>
-            <div class="chat-input-area">
-              <textarea id="chat-input" placeholder="输入问题，Enter 发送，Shift+Enter 换行..." rows="1"></textarea>
-              <button class="btn btn-primary btn-send" onclick="sendMessage()">发送</button>
-            </div>
           </div>
-        </div>
-      </section>
+        </section>
 
-      <!-- 部门管理页 -->
-      <section id="page-departments" class="page">
-        <div class="page-header">
-          <h2>部门管理</h2>
-          <button id="btn-create-tenant" class="btn btn-primary hidden" onclick="showCreateTenantModal()">+ 新建部门</button>
-        </div>
-        <div class="card">
-          <div id="tenant-table" class="data-table">加载中...</div>
-        </div>
-      </section>
-
-      <!-- 人员管理页 -->
-      <section id="page-members" class="page">
-        <div class="page-header">
-          <h2>人员管理 — <span id="members-dept-name" class="muted">当前部门</span></h2>
-          <button class="btn btn-primary" onclick="showInviteModal()">+ 邀请成员</button>
-        </div>
-        <div class="card">
-          <h3 class="section-title">已加入成员</h3>
-          <div id="member-table" class="data-table">加载中...</div>
-        </div>
-        <div class="card">
-          <h3 class="section-title">待处理邀请</h3>
-          <div id="invitation-table" class="data-table">加载中...</div>
-        </div>
-      </section>
-
-      <!-- 智能体管理页 -->
-      <section id="page-agents" class="page">
-        <div class="page-header">
-          <h2>智能体管理</h2>
-          <button class="btn btn-primary" onclick="showAgentModal()">+ 新建智能体</button>
-        </div>
-        <div class="card">
-          <div id="agent-table" class="data-table">加载中...</div>
-        </div>
-      </section>
-
-      <!-- 文档管理页 -->
-      <section id="page-documents" class="page">
-        <div class="page-header">
-          <h2>文档管理</h2>
-          <button class="btn btn-primary" onclick="showKbModal()">+ 新建知识库</button>
-        </div>
-        <div class="card">
-          <h3 class="section-title">知识库列表</h3>
-          <div id="kb-table" class="data-table">加载中...</div>
-        </div>
-        <div id="kb-detail" class="card hidden">
+        <!-- 部门管理页 -->
+        <section id="page-departments" class="page">
           <div class="page-header">
-            <h3 id="kb-detail-title">文档列表</h3>
             <div>
-              <label class="btn btn-secondary">
-                📎 上传文档
-                <input type="file" id="doc-upload" multiple style="display:none" onchange="uploadDocuments(this)" />
-              </label>
-              <button class="btn btn-ghost" onclick="closeKbDetail()">返回</button>
+              <h2>部门管理</h2>
+              <p class="page-subtitle">切换并查看你所属的部门工作空间</p>
             </div>
+            <button id="btn-create-tenant" class="btn btn-primary hidden" onclick="showCreateTenantModal()">+ 新建部门</button>
           </div>
-          <div id="doc-table" class="data-table">加载中...</div>
-        </div>
-      </section>
-    </main>
+          <div class="card">
+            <div id="tenant-table" class="data-table">加载中...</div>
+          </div>
+        </section>
+
+        <!-- 人员管理页 -->
+        <section id="page-members" class="page">
+          <div class="page-header">
+            <div>
+              <h2>人员管理</h2>
+              <p class="page-subtitle">当前部门：<span id="members-dept-name">—</span></p>
+            </div>
+            <button id="btn-invite-member" class="btn btn-primary" onclick="showInviteModal()">+ 邀请成员</button>
+          </div>
+          <div class="card">
+            <h3 class="section-title">已加入成员</h3>
+            <div id="member-table" class="data-table">加载中...</div>
+          </div>
+          <div class="card">
+            <h3 class="section-title">待处理邀请</h3>
+            <div id="invitation-table" class="data-table">加载中...</div>
+          </div>
+        </section>
+
+        <!-- 智能体管理页 -->
+        <section id="page-agents" class="page">
+          <div class="page-header">
+            <div>
+              <h2>智能体管理</h2>
+              <p class="page-subtitle">当前管理部门：<span id="agents-dept-name">—</span>（新建 / 编辑的智能体归属该部门）</p>
+            </div>
+            <button id="btn-create-agent" class="btn btn-primary" onclick="showAgentModal()">+ 新建智能体</button>
+          </div>
+          <div class="scope-note">
+            <span class="scope-note-icon">🔗</span>
+            <span>要切换管理部门，请使用顶栏「当前部门」下拉框；超级管理员可「分配到部门」，让其它部门的成员在问答页面直接使用该智能体。</span>
+          </div>
+          <div class="card">
+            <div id="agent-table" class="data-table">加载中...</div>
+          </div>
+        </section>
+
+        <!-- 文档管理页 -->
+        <section id="page-documents" class="page">
+          <div class="page-header">
+            <div>
+              <h2>文档管理</h2>
+              <p class="page-subtitle">维护本部门知识库与文档</p>
+            </div>
+            <button id="btn-create-kb" class="btn btn-primary" onclick="showKbModal()">+ 新建知识库</button>
+          </div>
+          <div class="card">
+            <h3 class="section-title">知识库列表</h3>
+            <div id="kb-table" class="data-table">加载中...</div>
+          </div>
+          <div id="kb-detail" class="card hidden">
+            <div class="kb-detail-head">
+              <h3 id="kb-detail-title">文档列表</h3>
+              <div class="row-actions">
+                <label class="btn btn-secondary btn-sm">
+                  <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
+                  上传文档
+                  <input type="file" id="doc-upload" multiple style="display:none" onchange="uploadDocuments(this)" />
+                </label>
+                <button class="btn btn-ghost btn-sm" onclick="closeKbDetail()">返回</button>
+              </div>
+            </div>
+            <div id="doc-table" class="data-table">加载中...</div>
+          </div>
+        </section>
+      </main>
+    </div>
   </div>
 
   <!-- 通用弹窗 -->
@@ -229,7 +298,9 @@
     <div class="modal" onclick="event.stopPropagation()">
       <div class="modal-header">
         <h3 id="modal-title">标题</h3>
-        <button class="btn-icon" onclick="closeModal()">✕</button>
+        <button class="icon-btn" onclick="closeModal()">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+        </button>
       </div>
       <div id="modal-body" class="modal-body"></div>
       <div class="modal-footer">

@@ -25,7 +25,13 @@ while [[ $# -gt 0 ]]; do
 done
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 cd "${SCRIPT_DIR}"
+
+# 打上构建版本号（左下角显示「当前版本 YY-MM-DD」，当天多次构建追加 -VN）
+if [[ -f "${ROOT_DIR}/scripts/portal/build-version.py" ]] && command -v python3 >/dev/null 2>&1; then
+  python3 "${ROOT_DIR}/scripts/portal/build-version.py" || echo "⚠️  构建版本号打标失败，已忽略"
+fi
 
 # 检查 Python3
 if ! command -v python3 >/dev/null 2>&1; then

@@ -1,8 +1,7 @@
 {
-  "_comment": "OBARA 多租户部门与人员初始化数据。每个部门对应一个 WeKnora 工作空间（Tenant）。每部门首位人员为文档管理员（Owner），其余为普通成员（Contributor）。邮箱按公司规则生成：姓全拼 + 名各字首字母 + @obara.com.cn（如 高剑 gaoj@obara.com.cn、陈爱珍 chenaz@obara.com.cn；O/NJG 管理部张杰为 zhangj_adm@obara.com.cn；重名第二条起加数字后缀）。可用 scripts/multi-tenant/gen-emails.py 重新生成，也可直接改写为个人真实邮箱。",
+  "_comment": "OBARA 多租户部门与人员初始化数据。每个部门对应一个 WeKnora 工作空间（Tenant）。所有成员一律以普通成员（Contributor）身份加入本部门空间，初始化不设默认管理员；初始化完成后由超管在 WeKnora 原生后台逐部门把负责人角色改为文档管理员（Owner）。成员在 JSON 中的先后顺序无权限含义，仅用于人工核对。邮箱按公司规则生成：姓全拼 + 名各字首字母 + @obara.com.cn（如 高剑 gaoj@obara.com.cn、陈爱珍 chenaz@obara.com.cn；O/NJG 管理部张杰为 zhangj_adm@obara.com.cn；重名第二条起加数字后缀）。可用 scripts/multi-tenant/gen-emails.py 重新生成，也可直接改写为个人真实邮箱。",
   "email_domain": "obara.com.cn",
   "default_role": "contributor",
-  "admin_role": "owner",
   "locations": [
     {
       "code": "NJG",
@@ -14,7 +13,6 @@
           "members": [
             {
               "name": "周泽健",
-              "is_admin": true,
               "email": "zhouzj@obara.com.cn"
             },
             {
@@ -29,7 +27,6 @@
           "members": [
             {
               "name": "李婷",
-              "is_admin": true,
               "email": "lit@obara.com.cn"
             },
             {
@@ -52,7 +49,6 @@
           "members": [
             {
               "name": "常青",
-              "is_admin": true,
               "email": "changq@obara.com.cn"
             },
             {
@@ -87,7 +83,6 @@
           "members": [
             {
               "name": "马筱丰",
-              "is_admin": true,
               "email": "maxf@obara.com.cn"
             },
             {
@@ -130,7 +125,6 @@
           "members": [
             {
               "name": "陆方明",
-              "is_admin": true,
               "email": "lufm@obara.com.cn"
             },
             {
@@ -237,7 +231,6 @@
           "members": [
             {
               "name": "冯爱国",
-              "is_admin": true,
               "email": "fengag@obara.com.cn"
             },
             {
@@ -304,7 +297,6 @@
           "members": [
             {
               "name": "张杰",
-              "is_admin": true,
               "email": "zhangj@obara.com.cn",
               "username": "张杰(技术开发部)"
             },
@@ -448,7 +440,6 @@
           "members": [
             {
               "name": "马晏陟",
-              "is_admin": true,
               "email": "mayz@obara.com.cn"
             },
             {
@@ -495,7 +486,6 @@
           "members": [
             {
               "name": "张杰",
-              "is_admin": true,
               "email": "zhangj@obara.com.cn",
               "username": "张杰(技术开发部)"
             },
@@ -633,7 +623,6 @@
           "members": [
             {
               "name": "周泽健",
-              "is_admin": true,
               "email": "zhouzj@obara.com.cn"
             },
             {
@@ -648,7 +637,6 @@
           "members": [
             {
               "name": "李婷",
-              "is_admin": true,
               "email": "lit@obara.com.cn"
             },
             {
@@ -671,7 +659,6 @@
           "members": [
             {
               "name": "常青",
-              "is_admin": true,
               "email": "changq@obara.com.cn"
             },
             {
@@ -706,7 +693,6 @@
           "members": [
             {
               "name": "马晏陟",
-              "is_admin": true,
               "email": "mayz@obara.com.cn"
             },
             {
@@ -737,7 +723,6 @@
           "members": [
             {
               "name": "马筱丰",
-              "is_admin": true,
               "email": "maxf@obara.com.cn"
             },
             {
@@ -756,7 +741,6 @@
           "members": [
             {
               "name": "陆方明",
-              "is_admin": true,
               "email": "lufm@obara.com.cn"
             },
             {
@@ -819,7 +803,6 @@
           "members": [
             {
               "name": "冯爱国",
-              "is_admin": true,
               "email": "fengag@obara.com.cn"
             },
             {

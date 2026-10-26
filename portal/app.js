@@ -19,6 +19,9 @@ const STATE = {
 
 const API_BASE = '/api/v1';
 
+// 平台统一品牌名称
+const BRAND = 'OBARA 知识库问答平台';
+
 // ---------- 工具函数 ----------
 function toast(msg, type = 'info') {
   const t = document.getElementById('toast');
@@ -52,7 +55,9 @@ async function api(method, path, body = null, opts = {}) {
 }
 
 // 流式请求（SSE）
-async function apiStream(method, path, body, onChunk, onDone) {
+// 注意：后端部分错误（如智能体未配置对话模型）不会写入 SSE 流，只会返回 200 + 空流，
+// 因此这里对响应体中的 error / response_type=error 做识别，及时报错而不是一直等待。
+async function apiStream(method, path, body, onChunk, onDone, onError) {
   const resp = await fetch(API_BASE + path, {
     method,
     headers: authHeaders({ Accept: 'text/event-stream' }),
@@ -73,10 +78,16 @@ async function apiStream(method, path, body, onChunk, onDone) {
       if (!l || !l.startsWith('data:')) continue;
       const payload = l.slice(5).trim();
       if (payload === '[DONE]') { onDone && onDone(); return; }
+      let obj = null;
       try {
-        const obj = JSON.parse(payload);
-        onChunk && onChunk(obj);
-      } catch { /* 忽略非 JSON 行 */ }
+        obj = JSON.parse(payload);
+      } catch { continue; }   // 忽略非 JSON 行
+      if (obj && (obj.response_type === 'error' || obj.error)) {
+        const e = new Error(obj.error || obj.message || '后端处理失败');
+        if (onError) { onError(e); return; }
+        throw e;
+      }
+      onChunk && onChunk(obj);
     }
   }
   onDone && onDone();
@@ -94,10 +105,55 @@ function escapeHtml(s) {
   document.querySelectorAll('.footer-year').forEach(el => { el.textContent = year; });
 })();
 
+// ---------- 角色与权限 ----------
+// 部门内的管理类功能（人员 / 智能体 / 文档）仅对下列角色开放，
+// 默认只有文档管理员 Owner 可用；如需放开其它角色，在此集合追加即可。
+const MANAGE_ROLES = ['owner'];
+const MANAGE_PAGES = ['members', 'agents', 'documents'];
+const ROLE_TEXT = { owner: '文档管理员', admin: '管理员', contributor: '普通成员', viewer: '只读成员' };
+
+function roleText(role) { return ROLE_TEXT[role] || role || '未知角色'; }
+
 function getRoleBadge(role) {
   const map = { owner: 'badge-owner', admin: 'badge-admin', contributor: 'badge-contributor', viewer: 'badge-viewer' };
   const cls = map[role] || 'badge-viewer';
-  return `<span class="badge ${cls}">${role}</span>`;
+  return `<span class="badge ${cls}">${roleText(role)}</span>`;
+}
+
+// 当前用户在「当前部门」中的成员身份
+function currentMembership() {
+  const list = (STATE.user && STATE.user.memberships) || [];
+  return list.find(m => String(m.tenant_id) === String(STATE.currentTenantId)) || null;
+}
+function currentRole() { return (currentMembership() || {}).role || ''; }
+
+// 系统管理员：可跨工作空间管理（后端对 X-Tenant-ID 切换授予临时 Admin）
+function isSystemAdmin() {
+  const u = (STATE.user && STATE.user.user) || {};
+  return !!(u.is_system_admin || u.can_access_all_tenants);
+}
+function isDeptManager() { return isSystemAdmin() || MANAGE_ROLES.includes(currentRole()); }
+function canAccessPage(page) { return !MANAGE_PAGES.includes(page) || isDeptManager(); }
+
+// 按当前部门内的角色刷新界面可见性
+function applyPermissionUI() {
+  const manage = isDeptManager();
+  document.querySelectorAll('.nav-item').forEach(n => {
+    if (MANAGE_PAGES.includes(n.dataset.page)) n.classList.toggle('hidden', !manage);
+  });
+  const group = document.getElementById('nav-group-admin');
+  if (group) group.classList.toggle('hidden', !manage);
+  ['btn-invite-member', 'btn-create-agent', 'btn-create-kb'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.classList.toggle('hidden', !manage);
+  });
+  const chip = document.getElementById('user-role');
+  if (chip) {
+    const role = currentRole();
+    const sys = isSystemAdmin();
+    chip.textContent = sys ? '系统管理员' : (role ? roleText(role) : '未加入部门');
+    chip.className = `role-chip ${sys ? 'role-chip-admin' : `role-chip-${role || 'none'}`}`;
+  }
 }
 
 // ---------- 认证 ----------
@@ -152,9 +208,8 @@ async function initRegisterPage() {
     // token 一律走 POST body，避免落入访问日志
     const resp = await api('POST', '/auth/invitations/lookup', { token: INVITE_TOKEN });
     const d = resp.data || {};
-    const roleText = { owner: '文档管理员', admin: '管理员', contributor: '普通成员', viewer: '只读成员' }[d.role] || d.role;
     document.getElementById('register-subtitle').innerHTML =
-      `你将加入 <strong>${escapeHtml(d.tenant_name || ('空间 ' + d.tenant_id))}</strong>，角色：<strong>${roleText}</strong>`;
+      `你将加入 <strong>${escapeHtml(d.tenant_name || ('空间 ' + d.tenant_id))}</strong>，角色：<strong>${roleText(d.role)}</strong>`;
   } catch (err) {
     document.getElementById('register-subtitle').textContent = '邀请链接无效或已过期：' + err.message;
     document.getElementById('register-form').classList.add('hidden');
@@ -220,16 +275,31 @@ async function loadTenants() {
       name: m.tenant_name || `空间 ${m.tenant_id}`,
       role: m.role,
     }));
+    // 系统管理员：补全全部部门，便于跨部门切换管理（后端按 X-Tenant-ID 授予临时 Admin）
+    if (isSystemAdmin()) {
+      try {
+        const all = await api('GET', '/tenants/all?page=1&page_size=200');
+        const items = (all.data || {}).items || all.data || [];
+        const seen = new Set(STATE.tenants.map(t => t.id));
+        for (const t of items) {
+          const id = String(t.id);
+          if (seen.has(id)) continue;
+          seen.add(id);
+          STATE.tenants.push({ id, name: t.name || `空间 ${id}`, role: '' });
+        }
+      } catch { /* 无权限时忽略，仅保留已加入部门 */ }
+    }
     const sel = document.getElementById('tenant-select');
     sel.innerHTML = '';
     if (STATE.tenants.length === 0) {
       sel.innerHTML = '<option value="">暂无工作空间</option>';
+      applyPermissionUI();
       return;
     }
     for (const t of STATE.tenants) {
       const opt = document.createElement('option');
       opt.value = t.id;
-      opt.textContent = t.name + (t.role === 'owner' ? '（管理员）' : '');
+      opt.textContent = t.name + (t.role ? `（${roleText(t.role)}）` : '');
       sel.appendChild(opt);
     }
     // 选择上次的或第一个
@@ -255,15 +325,25 @@ async function switchTenant(id) {
 
 async function onTenantChanged() {
   const t = STATE.tenants.find(x => x.id === String(STATE.currentTenantId));
-  if (t) document.getElementById('members-dept-name').textContent = t.name;
+  document.getElementById('members-dept-name').textContent = t ? t.name : '未选择部门';
+  const ag = document.getElementById('agents-dept-name');
+  if (ag) ag.textContent = t ? t.name : '未选择部门';
+  // 角色随部门变化，先刷新管理类入口的可见性
+  applyPermissionUI();
   STATE.currentAgentId = '';
   STATE.currentSessionId = '';
   STATE.chatHistory = [];
+  resetChatHeader();
   renderChatMessages();
 }
 
 // ---------- 页面切换 ----------
 function showPage(name) {
+  // 越权保护：管理类页面仅部门文档管理员可用
+  if (!canAccessPage(name)) {
+    toast('仅本部门文档管理员（Owner）可使用「人员 / 智能体 / 文档管理」', 'warning');
+    name = 'chat';
+  }
   STATE.currentPage = name;
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
   document.getElementById('page-' + name).classList.add('active');
@@ -285,64 +365,147 @@ function toggleSidebar() {
 }
 
 // ---------- 问答页 ----------
+// 欢迎页推荐问题（点击后自动填入输入框并发送）
+const SUGGESTIONS = [
+  '这份文档的核心结论是什么？',
+  '帮我总结本部门最新的作业标准',
+  '这个流程的责任人与完成时限是什么？',
+  '有哪些常见问题及对应处理方式？',
+];
+
 async function loadAgentsForChat() {
   const list = document.getElementById('agent-list');
   list.innerHTML = '<div class="empty-tip">加载中...</div>';
   try {
     const resp = await api('GET', '/agents');
-    const agents = resp.data || [];
+    const agents = (resp.data || []).map(a => ({ ...a, sharedFrom: '' }));
+    // 组织共享给本空间的智能体走另一个接口：/organizations → /organizations/{id}/shared-agents。
+    // 只调 /agents 是拿不到的，部门空间因此"加入了共享空间却看不到共享智能体"。
+    try {
+      const orgResp = await api('GET', '/organizations');
+      const orgs = (orgResp.data || {}).organizations || [];
+      for (const org of orgs) {
+        const r = await api('GET', `/organizations/${org.id}/shared-agents`);
+        for (const item of r.data || []) {
+          const a = item.agent || item;
+          if (!a.id || agents.some(x => x.id === a.id)) continue;
+          agents.push({ ...a, sharedFrom: org.name || '共享空间' });
+        }
+      }
+    } catch { /* 未加入任何组织或接口不可用时忽略 */ }
+
     if (agents.length === 0) {
-      list.innerHTML = '<div class="empty-tip">暂无智能体，请先在「智能体管理」中创建</div>';
+      list.innerHTML = '<div class="empty-tip">暂无可用智能体<span class="empty-tip-sub">请联系本部门文档管理员创建</span></div>';
       return;
     }
-    list.innerHTML = agents.map(a => `
-      <div class="agent-item ${a.id === STATE.currentAgentId ? 'active' : ''}" onclick="selectAgent('${a.id}')">
-        <div class="agent-item-name">${escapeHtml(a.name)}</div>
-        <div class="agent-item-desc">${escapeHtml(a.description || '')}</div>
-      </div>
-    `).join('');
+    list.innerHTML = agents.map(a => {
+      const desc = (a.description || '暂无描述') + (a.sharedFrom ? `（来自：${a.sharedFrom}）` : '');
+      return `
+      <div class="agent-item ${a.id === STATE.currentAgentId ? 'active' : ''}" data-id="${a.id}"
+           data-name="${escapeHtml(a.name)}" data-desc="${escapeHtml(desc)}" onclick="selectAgent('${a.id}')">
+        <div class="agent-item-icon">${escapeHtml((a.name || '智').trim().charAt(0))}</div>
+        <div class="agent-item-body">
+          <div class="agent-item-name">${escapeHtml(a.name)}${a.sharedFrom ? ' <span class="badge badge-active">共享</span>' : ''}</div>
+          <div class="agent-item-desc">${escapeHtml(desc)}</div>
+        </div>
+      </div>`;
+    }).join('');
   } catch (err) {
     list.innerHTML = `<div class="empty-tip">加载失败：${err.message}</div>`;
   }
 }
 
+// ---------- 会话头部与快捷提问 ----------
+function userInitial() {
+  const u = STATE.user || {};
+  const n = (u.username || u.name || u.email || '我').trim();
+  return n.charAt(0).toUpperCase();
+}
+
+function setChatHeader(name, sub) {
+  const n = document.getElementById('chat-agent-name');
+  const s = document.getElementById('chat-agent-sub');
+  const avatar = document.getElementById('chat-agent-avatar');
+  if (n) n.textContent = name || '未选择智能体';
+  if (s) s.textContent = sub || (name ? '基于本部门知识库作答' : '请从左侧选择一个智能体开始问答');
+  if (avatar) avatar.textContent = (name || '智').trim().charAt(0).toUpperCase();
+}
+
+function resetChatHeader() { setChatHeader('', ''); }
+
 function selectAgent(id) {
   STATE.currentAgentId = id;
   STATE.currentSessionId = '';   // 换智能体即开启新会话
-  const items = document.querySelectorAll('.agent-item');
-  items.forEach(i => i.classList.remove('active'));
-  const active = document.querySelector(`.agent-item[onclick*="'${id}'"]`);
-  if (active) active.classList.add('active');
-  const name = active ? active.querySelector('.agent-item-name').textContent : '智能体';
-  document.querySelector('.chat-agent-name').textContent = name;
+  const active = document.querySelector(`.agent-item[data-id="${id}"]`);
+  document.querySelectorAll('.agent-item').forEach(i => i.classList.toggle('active', i === active));
+  setChatHeader(active ? active.dataset.name : '', active ? active.dataset.desc : '');
   STATE.chatHistory = [];
   renderChatMessages();
+}
+
+function resetChat() {
+  STATE.currentSessionId = '';
+  STATE.chatHistory = [];
+  renderChatMessages();
+  toast('已开启新会话', 'success');
+}
+
+function askSuggestion(text) {
+  const input = document.getElementById('chat-input');
+  if (!input) return;
+  input.value = text;
+  input.focus();
+  if (STATE.currentAgentId) sendMessage();
+}
+
+function renderCitations(citations) {
+  const list = (citations || []).map(c => (typeof c === 'string' ? c : (c.file_name || c.title || c.source || ''))).filter(Boolean);
+  if (!list.length) return '';
+  return `<div class="msg-citations"><span class="cite-label">引用来源</span>${
+    list.map(c => `<span class="cite-chip" title="${escapeHtml(c)}">${escapeHtml(c)}</span>`).join('')
+  }</div>`;
 }
 
 function renderChatMessages() {
   const box = document.getElementById('chat-messages');
   if (STATE.chatHistory.length === 0) {
-    box.innerHTML = `<div class="chat-placeholder">
-      <div class="chat-placeholder-icon">💡</div>
-      <p>选择左侧智能体，开始向部门知识库提问</p>
+    const hasAgent = !!STATE.currentAgentId;
+    box.innerHTML = `<div class="chat-welcome">
+      <div class="welcome-mark">💡</div>
+      <h2 class="welcome-title">向部门知识库提问</h2>
+      <p class="welcome-desc">${
+        hasAgent
+          ? '回答仅基于本部门已入库文档生成，并附带引用来源便于核对。'
+          : '请先在左侧选择一个智能体，回答将基于其绑定的知识库生成。'
+      }</p>
+      <div class="suggest-grid">
+        ${SUGGESTIONS.map(s => `<button class="suggest-card" onclick="askSuggestion('${escapeHtml(s).replace(/'/g, "\\'")}')">${escapeHtml(s)}</button>`).join('')}
+      </div>
     </div>`;
     return;
   }
   box.innerHTML = STATE.chatHistory.map((m, i) => {
     if (m.role === 'user') {
-      return `<div class="msg msg-user"><div class="msg-bubble">${escapeHtml(m.content)}</div></div>`;
-    } else {
-      const cites = m.citations && m.citations.length
-        ? `<div class="msg-citations">📚 引用：${m.citations.map((c, j) => `<a href="#" onclick="event.preventDefault()">${escapeHtml(c)}</a>`).join('，')}</div>`
-        : '';
-      return `<div class="msg msg-bot"><div class="msg-bubble" id="msg-${i}">${escapeHtml(m.content)}</div>${cites}</div>`;
+      return `<div class="msg msg-user">
+        <div class="msg-avatar msg-avatar-user">${escapeHtml(userInitial())}</div>
+        <div class="msg-body"><div class="msg-bubble">${escapeHtml(m.content)}</div></div>
+      </div>`;
     }
+    const failed = String(m.content || '').startsWith('⚠️');
+    return `<div class="msg msg-bot${failed ? ' msg-error' : ''}">
+      <div class="msg-avatar msg-avatar-bot">AI</div>
+      <div class="msg-body">
+        <div class="msg-bubble" id="msg-${i}">${escapeHtml(m.content)}</div>
+        ${renderCitations(m.citations)}
+      </div>
+    </div>`;
   }).join('');
   box.scrollTop = box.scrollHeight;
 }
 
 async function sendMessage() {
   const input = document.getElementById('chat-input');
+  const sendBtn = document.getElementById('btn-send');
   const text = input.value.trim();
   if (!text) return;
   if (!STATE.currentAgentId) { toast('请先选择智能体', 'warning'); return; }
@@ -352,6 +515,7 @@ async function sendMessage() {
   input.value = '';
   input.style.height = 'auto';
   STATE.streaming = true;
+  if (sendBtn) sendBtn.disabled = true;
   renderChatMessages();
 
   // 添加机器人占位
@@ -383,14 +547,23 @@ async function sendMessage() {
       }
       if (chunk.citations) STATE.chatHistory[botIdx].citations = chunk.citations;
     }, () => {
-      STATE.streaming = false;
+      finishStream(sendBtn);
+      if (!STATE.chatHistory[botIdx].content) {
+        STATE.chatHistory[botIdx].content = '未收到回答内容，请检查该智能体是否已绑定对话模型。';
+      }
       renderChatMessages();
-    });
+    }, (err) => { throw err; });
   } catch (err) {
-    STATE.streaming = false;
+    finishStream(sendBtn);
     STATE.chatHistory[botIdx].content = '⚠️ 回答失败：' + err.message;
     renderChatMessages();
   }
+}
+
+function finishStream(sendBtn) {
+  STATE.streaming = false;
+  const btn = sendBtn || document.getElementById('btn-send');
+  if (btn) btn.disabled = false;
 }
 
 function showTyping(idx) {
@@ -673,6 +846,7 @@ async function loadAgents() {
             <td>${escapeHtml(kbNames)}</td>
             <td class="row-actions">
               <button class="btn btn-sm btn-secondary" onclick="editAgent('${a.id}')">编辑</button>
+              ${a.is_builtin ? '' : `<button class="btn btn-sm btn-secondary" onclick="showAgentAssignModal('${a.id}','${escapeHtml(a.name).replace(/'/g, "\\'")}')">分配到部门</button>`}
               <button class="btn btn-sm btn-danger" onclick="deleteAgent('${a.id}')">删除</button>
             </td>
           </tr>`;
@@ -797,13 +971,253 @@ async function deleteAgent(id) {
   } catch (err) { toast('删除失败：' + err.message, 'error'); }
 }
 
+// ---------- 跨部门分配（超管） ----------
+// 智能体天然属于某个部门；跨部门「分配」通过「共享组织」实现：
+//   1) 把智能体所属部门加入共享组织（成员角色 editor/admin）
+//   2) 把智能体分享到该组织（POST /agents/{id}/shares）
+// 于是组织内的其它部门成员即可在问答页看到并使用该智能体。
+let shareCtx = { agentId: '', agentName: '', orgs: [], shares: [], members: [], view: 'orgs', orgId: '', orgName: '' };
+
+async function showAgentAssignModal(agentId, agentName) {
+  shareCtx = { agentId, agentName, orgs: [], shares: [], members: [], view: 'orgs', orgId: '', orgName: '' };
+  document.getElementById('modal-title').textContent = `分配「${agentName}」到部门`;
+  document.getElementById('modal-body').innerHTML = '<div class="empty-tip">加载中...</div>';
+  document.getElementById('modal-confirm').classList.add('hidden');
+  document.getElementById('modal-overlay').classList.remove('hidden');
+  try {
+    await reloadShareCtx();
+  } catch (err) { toast('加载共享组织失败：' + err.message, 'error'); }
+  renderAssignBody();
+}
+
+async function reloadShareCtx() {
+  const [orgResp, shareResp] = await Promise.all([
+    api('GET', '/organizations').catch(() => ({ data: {} })),
+    api('GET', `/agents/${shareCtx.agentId}/shares`).catch(() => ({ data: {} })),
+  ]);
+  shareCtx.orgs = (orgResp.data || {}).organizations || [];
+  const s = shareResp.data || {};
+  shareCtx.shares = Array.isArray(s) ? s : (s.shares || []);
+}
+
+function renderAssignBody() {
+  const body = document.getElementById('modal-body');
+  if (shareCtx.view === 'members') { renderOrgMembersBody(body); return; }
+
+  const t = STATE.tenants.find(x => x.id === String(STATE.currentTenantId));
+  const sharedIds = new Set(shareCtx.shares.map(s => String(s.organization_id)));
+  body.innerHTML = `
+    <div class="scope-note">
+      <span class="scope-note-icon">🏢</span>
+      <span>智能体归属部门：<strong>${escapeHtml(t ? t.name : '未知')}</strong>。分配后，所选共享组织内的所有部门成员都能在问答页面看到并使用它。</span>
+    </div>
+
+    <h4 class="subtle-title">已分配到（${shareCtx.shares.length}）</h4>
+    ${shareCtx.shares.length === 0
+      ? '<div class="empty-tip">尚未分配到任何共享组织</div>'
+      : shareCtx.shares.map(s => `
+        <div class="share-row">
+          <div>
+            <div class="share-row-name">${escapeHtml(s.organization_name || s.organization_id)}</div>
+            <div class="share-row-sub">权限：${escapeHtml(s.permission || '-')}　·　由本部门分享</div>
+          </div>
+          <button class="btn btn-sm btn-ghost" onclick="unshareAgent('${s.id}')">取消分配</button>
+        </div>`).join('')}
+
+    <h4 class="subtle-title">选择共享组织</h4>
+    ${shareCtx.orgs.length === 0
+      ? '<div class="empty-tip">暂无共享组织，请在下方新建</div>'
+      : `<div class="org-picker">${shareCtx.orgs.map(o => `
+        <label class="org-item">
+          <input type="checkbox" class="org-check" value="${o.id}" ${sharedIds.has(String(o.id)) ? 'checked' : ''} />
+          <div class="org-item-body">
+            <div class="org-item-name">${escapeHtml(o.name)}</div>
+            <div class="org-item-desc">${escapeHtml(o.description || '无描述')} · 已共享智能体 ${o.agent_share_count ?? 0} 个</div>
+          </div>
+          <button class="btn btn-sm btn-ghost" onclick="event.preventDefault();openOrgMembers('${o.id}','${escapeHtml(o.name).replace(/'/g, "\\'")}')">管理部门</button>
+        </label>`).join('')}</div>`}
+
+    <h4 class="subtle-title">新建共享组织</h4>
+    <div class="inline-form">
+      <input id="new-org-name" placeholder="组织名称，如：全公司共享 / 技术标准共享" />
+      <select id="share-permission">
+        <option value="editor">编辑者（可共享）</option>
+        <option value="admin">管理员</option>
+        <option value="viewer">查看者</option>
+      </select>
+      <button class="btn btn-secondary btn-sm" onclick="createAndShareOrg()">新建并分配</button>
+    </div>
+
+    <div class="modal-actions-bar">
+      <button class="btn btn-ghost btn-sm" onclick="closeModal()">完成</button>
+      <button class="btn btn-primary btn-sm" onclick="applyAgentShares()">保存到所选组织</button>
+    </div>
+  `;
+}
+
+function permValue() {
+  const el = document.getElementById('share-permission');
+  return el ? el.value : 'editor';
+}
+
+async function applyAgentShares() {
+  const checked = Array.from(document.querySelectorAll('.org-check:checked')).map(i => i.value);
+  if (!checked.length) { toast('请至少勾选一个共享组织', 'warning'); return; }
+  let ok = 0;
+  for (const orgId of checked) {
+    try {
+      // 本部门需先成为该组织成员（editor/admin），否则后端拒绝共享
+      await ensureOrgMember(orgId, STATE.currentTenantId, 'editor');
+      await api('POST', `/agents/${shareCtx.agentId}/shares`, { organization_id: orgId, permission: permValue() });
+      ok++;
+    } catch (err) {
+      toast('分配失败：' + err.message, 'error');
+    }
+  }
+  if (ok) toast(`已分配到 ${ok} 个共享组织`, 'success');
+  await reloadShareCtx();
+  renderAssignBody();
+}
+
+async function createAndShareOrg() {
+  const el = document.getElementById('new-org-name');
+  const name = el ? el.value.trim() : '';
+  if (!name) { toast('请输入共享组织名称', 'warning'); return; }
+  try {
+    const org = await api('POST', '/organizations', {
+      name,
+      description: '由 OBARA 知识库问答平台门户创建，用于跨部门分配智能体',
+    });
+    const orgId = (org.data || {}).id;
+    if (!orgId) throw new Error('创建组织未返回 ID');
+    await api('POST', `/agents/${shareCtx.agentId}/shares`, { organization_id: orgId, permission: permValue() });
+    toast('已新建共享组织并完成分配', 'success');
+    await reloadShareCtx();
+    renderAssignBody();
+  } catch (err) {
+    toast('创建失败：' + err.message, 'error');
+  }
+}
+
+async function unshareAgent(shareId) {
+  try {
+    await api('DELETE', `/agents/${shareCtx.agentId}/shares/${shareId}`);
+    toast('已取消分配', 'success');
+    await reloadShareCtx();
+    renderAssignBody();
+  } catch (err) { toast('取消失败：' + err.message, 'error'); }
+}
+
+// 若指定部门还不是组织成员，则以给定角色加入（否则无法共享智能体）
+async function ensureOrgMember(orgId, tenantId, role) {
+  try {
+    const list = await fetchOrgMembers(orgId);
+    if (list.some(m => String(m.tenant_id) === String(tenantId))) return;
+  } catch { /* 读取失败时仍尝试加入 */ }
+  await api('POST', `/organizations/${orgId}/invite`, { tenant_id: Number(tenantId), role });
+}
+
+async function fetchOrgMembers(orgId) {
+  const resp = await api('GET', `/organizations/${orgId}/members`);
+  const d = resp.data || {};
+  return Array.isArray(d) ? d : (d.members || []);
+}
+
+async function openOrgMembers(orgId, orgName) {
+  shareCtx.view = 'members';
+  shareCtx.orgId = orgId;
+  shareCtx.orgName = orgName;
+  document.getElementById('modal-body').innerHTML = '<div class="empty-tip">加载中...</div>';
+  try {
+    shareCtx.members = await fetchOrgMembers(orgId);
+  } catch (err) {
+    toast('加载成员失败：' + err.message, 'error');
+    shareCtx.members = [];
+  }
+  renderAssignBody();
+}
+
+function backToOrgList() { shareCtx.view = 'orgs'; renderAssignBody(); }
+
+function renderOrgMembersBody(body) {
+  const members = shareCtx.members || [];
+  const curId = String(STATE.currentTenantId);
+  const joined = new Set(members.map(m => String(m.tenant_id)));
+  const options = STATE.tenants.filter(x => !joined.has(String(x.id)))
+    .map(x => `<option value="${x.id}">${escapeHtml(x.name)}</option>`).join('');
+  body.innerHTML = `
+    <button class="btn btn-ghost btn-sm" onclick="backToOrgList()">← 返回分配列表</button>
+    <h4 class="subtle-title">组织成员（${members.length}）</h4>
+    <p class="form-hint">「${escapeHtml(shareCtx.orgName)}」内的部门才能使用分配到该组织的智能体。</p>
+    ${members.length === 0
+      ? '<div class="empty-tip">暂无成员部门</div>'
+      : members.map(m => `
+        <div class="member-row">
+          <div>
+            <div class="member-row-name">${escapeHtml(m.tenant_name || ('空间 ' + m.tenant_id))}${String(m.tenant_id) === curId ? '（本部门）' : ''}</div>
+            <div class="member-row-sub">组织角色：${escapeHtml(m.role || '-')}</div>
+          </div>
+          ${String(m.tenant_id) === curId
+            ? '<span class="badge badge-contributor">当前部门</span>'
+            : `<button class="btn btn-sm btn-ghost" onclick="removeOrgMember('${m.tenant_id}')">移除</button>`}
+        </div>`).join('')}
+
+    <h4 class="subtle-title">添加部门成员</h4>
+    ${options
+      ? `<div class="inline-form">
+          <select id="org-member-dept">${options}</select>
+          <select id="org-member-role">
+            <option value="editor">编辑者（可共享智能体）</option>
+            <option value="admin">管理员</option>
+            <option value="viewer">查看者</option>
+          </select>
+          <button class="btn btn-secondary btn-sm" onclick="addOrgMember()">添加</button>
+        </div>`
+      : '<div class="empty-tip">当前可见部门均已加入该组织</div>'}
+  `;
+}
+
+async function addOrgMember() {
+  const tenantId = document.getElementById('org-member-dept').value;
+  const role = document.getElementById('org-member-role').value;
+  try {
+    await api('POST', `/organizations/${shareCtx.orgId}/invite`, { tenant_id: Number(tenantId), role });
+    toast('已添加部门成员', 'success');
+    shareCtx.members = await fetchOrgMembers(shareCtx.orgId);
+    renderAssignBody();
+  } catch (err) { toast('添加失败：' + err.message, 'error'); }
+}
+
+async function removeOrgMember(tenantId) {
+  try {
+    await api('DELETE', `/organizations/${shareCtx.orgId}/members/${tenantId}`);
+    toast('已移除部门成员', 'success');
+    shareCtx.members = await fetchOrgMembers(shareCtx.orgId);
+    renderAssignBody();
+  } catch (err) { toast('移除失败：' + err.message, 'error'); }
+}
+
 // ---------- 文档管理 ----------
 async function loadKbs() {
   const box = document.getElementById('kb-table');
   box.innerHTML = '加载中...';
   try {
     const resp = await api('GET', '/knowledge-bases');
-    const kbs = resp.data || [];
+    const kbs = (resp.data || []).map(k => ({ ...k, sharedFrom: '' }));
+    // 组织共享给本空间的知识库走另一个接口：/organizations → /organizations/{id}/shared-knowledge-bases。
+    // /knowledge-bases 只返回本空间自建的库，部门空间因此"加入了共享空间却看不到共享库"。
+    try {
+      const orgResp = await api('GET', '/organizations');
+      for (const org of (orgResp.data || {}).organizations || []) {
+        const r = await api('GET', `/organizations/${org.id}/shared-knowledge-bases`);
+        for (const item of r.data || []) {
+          const k = item.knowledge_base || item;
+          if (!k.id || kbs.some(x => x.id === k.id)) continue;
+          kbs.push({ ...k, sharedFrom: org.name || '共享空间' });
+        }
+      }
+    } catch { /* 未加入任何组织或接口不可用时忽略 */ }
+
     if (kbs.length === 0) {
       box.innerHTML = '<div class="empty-tip">暂无知识库，请点击右上角新建</div>';
       return;
@@ -812,12 +1226,14 @@ async function loadKbs() {
       <thead><tr><th>知识库名称</th><th>描述</th><th>文档数</th><th>操作</th></tr></thead>
       <tbody>
         ${kbs.map(k => `<tr>
-          <td><strong>${escapeHtml(k.name)}</strong></td>
-          <td>${escapeHtml(k.description || '')}</td>
+          <td><strong>${escapeHtml(k.name)}</strong>${k.sharedFrom ? ' <span class="badge badge-active">共享</span>' : ''}</td>
+          <td>${escapeHtml(k.description || '')}${k.sharedFrom ? '（来自：' + escapeHtml(k.sharedFrom) + '，只读）' : ''}</td>
           <td>${k.document_count ?? '-'}</td>
           <td class="row-actions">
-            <button class="btn btn-sm btn-secondary" onclick="openKbDetail('${k.id}','${escapeHtml(k.name).replace(/'/g,"\\'")}')">管理文档</button>
-            <button class="btn btn-sm btn-danger" onclick="deleteKb('${k.id}')">删除</button>
+            ${k.sharedFrom
+              ? '<span class="badge badge-contributor">只读</span>'
+              : `<button class="btn btn-sm btn-secondary" onclick="openKbDetail('${k.id}','${escapeHtml(k.name).replace(/'/g,"\\'")}')">管理文档</button>
+                 <button class="btn btn-sm btn-danger" onclick="deleteKb('${k.id}')">删除</button>`}
           </td>
         </tr>`).join('')}
       </tbody>
@@ -948,6 +1364,8 @@ function openModal(title, bodyHtml, onConfirm) {
   document.getElementById('modal-title').textContent = title;
   document.getElementById('modal-body').innerHTML = bodyHtml;
   modalConfirmCb = onConfirm;
+  // 部分弹窗（如「分配到部门」）由内部按钮完成操作，无需右下角确认按钮
+  document.getElementById('modal-confirm').classList.toggle('hidden', !onConfirm);
   document.getElementById('modal-overlay').classList.remove('hidden');
 }
 function closeModal(e) {
@@ -963,5 +1381,9 @@ document.getElementById('modal-confirm').addEventListener('click', () => {
 });
 
 // ---------- 启动 ----------
+// 统一品牌标识
+document.title = BRAND;
+document.querySelectorAll('.brand-text, .brand-title').forEach(el => { el.textContent = BRAND; });
+
 if (location.pathname === '/register') initRegisterPage();
 else initApp();

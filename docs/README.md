@@ -4,8 +4,8 @@
 
 | 文档 | 内容 | 适用场景 |
 | --- | --- | --- |
-| [deployment/deployment-log.md](deployment/deployment-log.md) | 阶段一～六的实际执行记录：环境基线、具体命令、踩坑根因、验证数据与运维手册 | 复现部署、排查问题、交接 |
-| [deployment/stage-summary.md](deployment/stage-summary.md) | 阶段一～六的精简总结：进度、交付结果、实测数据、下一步与遗留事项 | 汇报、阶段评审 |
+| [deployment/deployment-log.md](deployment/deployment-log.md) | 阶段一～六的实际执行记录：环境基线、具体命令、踩坑根因、验证数据、运维手册，以及门户开机自启与一键启停（§七之三） | 复现部署、排查问题、交接 |
+| [deployment/stage-summary.md](deployment/stage-summary.md) | 阶段一～六的精简总结：进度、交付结果、实测数据、服务启动与自启、下一步与遗留事项 | 汇报、阶段评审 |
 
 ## 相关位置
 

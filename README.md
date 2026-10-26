@@ -2,7 +2,7 @@
 
 [![Docs Site](https://github.com/caifugao110/obara-weknora-setup/actions/workflows/docs-site.yml/badge.svg)](https://github.com/caifugao110/obara-weknora-setup/actions/workflows/docs-site.yml)
 
-> 📖 **在线文档站**：<https://caifugao110.github.io/obara-weknora-setup/> —— 本仓库所有文档（README + `docs/` + 脚本文档）会被自动汇总成一个可检索、带目录的单页网站；**README 或 `docs/` 一有改动，GitHub Actions 会自动重建并发布**，详见 [9.3 文档站自动生成](#93-文档站自动生成)。
+> 📖 **在线文档站**：<https://caifugao110.github.io/obara-weknora-setup/> —— 本仓库所有文档（README + `docs/` + 脚本文档）会被自动汇总成一个可检索、带目录的单页网站；**README 或 `docs/` 一有改动，GitHub Actions 会自动重建并发布**，详见 [9.4 文档站自动生成](#94-文档站自动生成)。
 > 基于腾讯开源项目 [WeKnora](https://github.com/Tencent/WeKnora)（MIT 协议）搭建的企业内部知识库系统，用于公司内部文档、规范、技术资料的沉淀、语义检索与 AI RAG 智能问答。
 
 | 项目信息 | 内容 |
@@ -449,6 +449,40 @@ curl -s -X POST http://127.0.0.1:7997/rerank -H 'Content-Type: application/json'
 | API 密钥管控 | 业务侧 | 密钥不落文档、不进代码仓库 |
 | 问答日志、上传文件可审计追溯 | 双方 | 问答时仅发送检索片段，非全量文档 |
 
+### 5.1 服务启动与开机自启（8081 门户）
+
+虚拟机重启后无需手工操作：WeKnora 容器由 Docker `restart: unless-stopped` 自动拉起，Ollama 与门户由 systemd 自启，可直接访问 `http://<虚拟机IP>:8081`。
+
+| 服务 | 管理方式 | 开机自启 | 端口 |
+| --- | --- | --- | --- |
+| WeKnora 五容器 | docker compose | ✅ Docker 服务 enabled + 容器重启策略 | 80 / 8080 |
+| Rerank 独立容器 `weknora-rerank` | `docker run`（非 compose） | ✅ `restart: unless-stopped` | 7997 |
+| Ollama | systemd `ollama.service` | ✅ enabled | 11434 |
+| 门户 | systemd `obara-portal.service` | ✅ enabled | 8081 |
+
+```bash
+# 一键启动全部服务：Ollama → WeKnora 容器（含 Rerank）→ 8081 门户
+bash scripts/start-all.sh
+
+# 状态 / 重启 / 停止
+bash scripts/start-all.sh status
+bash scripts/start-all.sh restart
+bash scripts/start-all.sh stop
+
+# 首次安装或仓库目录变更后，安装门户开机自启（幂等）
+sudo bash scripts/deploy/install-autostart.sh
+sudo bash scripts/deploy/install-autostart.sh --uninstall   # 卸载自启
+
+# 门户日志
+journalctl -u obara-portal -f
+```
+
+> 注意事项：
+> - 门户服务以仓库目录属主身份运行，工作目录为 `portal/`；**移动仓库目录后需重新执行安装脚本**。
+> - `start-all.sh stop` 会停止门户与 WeKnora 容器（Ollama 保持运行）；此时重启虚机后容器不会自动回来，需再执行 `bash scripts/start-all.sh`。
+> - 若启用 `ufw` 或安全组，需放行 `8081`（门户）、`8080`（后端 API）、`80`（WeKnora 原生后台）。
+> - Rerank 容器重启后需约 1～2 分钟加载模型，期间问答可用，重排能力稍后恢复。
+
 ---
 
 ## 6. 实施节奏
@@ -504,13 +538,15 @@ obara-weknora-setup/
 │       ├── deployment-log.md
 │       └── stage-summary.md
 ├── scripts/
-│   ├── README.md                    # 脚本索引（部署 / 非部署）
-│   ├── deploy/                      # 【部署流程】阶段一～五环境与组件部署
+│   ├── README.md                    # 脚本索引（部署 / 非部署 / 运维）
+│   ├── portal/                      # 【非部署】门户构建工具（构建版本号打标）
+│   ├── start-all.sh                 # 【运维】一键启动/停止/重启全部服务
+│   ├── deploy/                      # 【部署流程】阶段一～五环境与组件部署 + 门户开机自启
 │   ├── kb/                          # 【非部署】阶段六知识库初始化、验收、数据转换
 │   └── docs-site/                   # 【非部署】文档站构建
 ├── data/                            # 【非部署】多租户部门与人员初始化数据
 ├── docs/multi-tenant-design.md      # 【非部署】多租户部门隔离方案（16 部门 + 新门户）
-├── portal/                          # 【非部署】新端口门户（8081）：问答 + 部门/人员/智能体/文档管理
+├── portal/                          # 【非部署】OBARA 知识问答平台门户（8081）：问答 + 部门/人员/智能体/文档管理
 ├── welding-gun-selection-kb/        # 【非部署】知识库源数据与答复提示词
 ├── .github/workflows/docs-site.yml  # 【非部署】文档站自动发布
 ├── site/                            # 构建产物（自动生成，不入库）
@@ -531,17 +567,19 @@ obara-weknora-setup/
 | `scripts/deploy/install-ollama.sh` | 阶段三：安装 Ollama 服务（systemd）并拉取 Embedding 模型，内置多下载源回退 |
 | `scripts/deploy/configure-deepseek.sh` | 阶段四：注册 DeepSeek 对话模型（快速问答 / 智能推理）与本地 Ollama 向量模型，并做上游连通性验证 |
 | `scripts/deploy/install-rerank.sh` | 阶段五：部署本地 Rerank 服务（infinity + `bge-reranker-v2-m3`）并注册到 WeKnora |
+| `scripts/deploy/install-autostart.sh` | 安装/卸载门户（8081）systemd 开机自启，并确认 Docker、Ollama 自启（幂等） |
 
 ### 9.2 非部署流程文件
 
 | 文件 | 用途 |
 | --- | --- |
-| `scripts/multi-tenant/init-tenants.sh` | 多租户初始化：一键创建 16 个部门工作空间 + 批量邀请成员（邀请制） |
-| `data/departments-personnel.json` | 16 个部门（NJG×9 + SHA×7）及全部人员清单，含文档管理员标记 |
+| `scripts/multi-tenant/init-tenants.sh` | 多租户初始化：一键创建 16 个部门工作空间 + 批量接入成员（全部为 Contributor，不设默认管理员，Owner 由超管事后手动指派） |
+| `data/departments-personnel.json` | 16 个部门（NJG×9 + SHA×7）及全部人员清单（仅邮箱与用户名，无管理员标记） |
 | `docs/multi-tenant-design.md` | 多租户部门隔离方案：组织映射、隔离机制、邀请流程、新门户设计与部署步骤 |
-| `portal/index.html` / `styles.css` / `app.js` | 新端口门户（8081）前端：精美简洁的问答 + 部门/人员/智能体/文档管理 |
-| `portal/server.py` | 门户 HTTP 服务 + `/api/*` 反向代理到 WeKnora 后端（解决 CORS） |
-| `portal/start.sh` | 门户启动脚本（支持 `--port` / `--upstream` / `--daemon`） |
+| `portal/index.html` / `styles.css` / `app.js` | OBARA 知识问答平台门户（8081）前端：问答 + 部门/人员/智能体/文档管理（人员/智能体/文档仅 Owner 可见） |
+| `portal/server.py` | 门户 HTTP 服务 + `/api/*` 反向代理到 WeKnora 后端（解决 CORS），并对管理类写操作做 Owner 二次鉴权 |
+| `portal/start.sh` | 门户启动脚本（支持 `--port` / `--upstream` / `--daemon`），启动时自动执行构建版本号打标 |
+| `scripts/portal/build-version.py` | 门户构建版本号打标：左下角「当前版本 YY-MM-DD」，当天多次构建追加 `-V2`/`-V3`（`--check` 只看不写） |
 | `scripts/kb/init-welding-gun-kb.sh` | 阶段六：建库 + 绑定模型 + 导入文档 + 创建受管智能体 + 写入检索参数（幂等，支持 `--no-wait` / `--pause` / `--resume` / `--status`） |
 | `scripts/kb/verify-welding-gun-kb.sh` | 阶段六：端到端验收，抽取真实记录自动生成提问并核对图号 |
 | `scripts/kb/build-flat-kb.py` | 阶段六：把宽表重建为「一行一段」自然语言短句，规避 `num_ctx=511` 截断 |
@@ -560,9 +598,32 @@ sudo bash scripts/deploy/fix-docker-env.sh      # 配置未生效 / 源或加速
 sudo bash scripts/deploy/configure-mirrors.sh   # 重新探测国内镜像加速器并写入配置
 sudo bash scripts/deploy/install-ollama.sh      # 安装 Ollama 并拉取向量模型（阶段三）
 sudo DEEPSEEK_API_KEY='sk-xxxxx' bash scripts/deploy/configure-deepseek.sh   # 配置对话模型（阶段四）
+sudo bash scripts/deploy/install-autostart.sh   # 安装门户（8081）开机自启
+bash scripts/start-all.sh                       # 一键启动全部服务
 ```
 
-### 9.3 文档站自动生成
+### 9.3 运维脚本（启动 / 自启）
+
+| 文件 | 用途 |
+| --- | --- |
+| `scripts/deploy/install-autostart.sh` | 安装/卸载门户（8081）systemd 开机自启，并确认 `docker`、`ollama` 已启用（幂等） |
+| `scripts/start-all.sh` | 一键启动全部服务：Ollama → WeKnora 容器（含独立 Rerank 容器）→ 8081 门户；自动等待 8080 健康检查并输出访问地址，支持 `start / status / restart / stop` |
+
+```bash
+# 首次安装或仓库目录变更后执行
+sudo bash scripts/deploy/install-autostart.sh
+sudo bash scripts/deploy/install-autostart.sh --uninstall   # 卸载自启
+
+# 日常运维
+bash scripts/start-all.sh            # 启动全部（默认）
+bash scripts/start-all.sh status     # 状态与健康检查
+bash scripts/start-all.sh restart    # 重启全部
+bash scripts/start-all.sh stop       # 停止门户与 WeKnora 容器（Ollama 保持运行）
+```
+
+> `start-all.sh` 支持环境变量 `WEKNORA_DIR`（默认 `/opt/obara/weknora`）、`PORTAL_PORT`（默认 `8081`）、`WEKNORA_URL`（默认 `http://127.0.0.1:8080`）。
+
+### 9.4 文档站自动生成
 
 仓库内所有 Markdown（含 `README.md`、`docs/`、`scripts/`、`welding-gun-selection-kb/` 等任意目录下的 `.md`）会由 GitHub Actions 汇总成一个单页文档站：
 

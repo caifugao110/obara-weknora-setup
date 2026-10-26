@@ -113,6 +113,7 @@ def main():
     lazy_pinyin = load_pinyin()
     domain = args.domain or data.get("email_domain") or "obara.com.cn"
     data["email_domain"] = domain
+    default_role = data.get("default_role") or "contributor"
 
     roster = [(dep, m) for loc in data.get("locations", [])
               for dep in loc.get("departments", []) for m in dep.get("members", [])]
@@ -175,7 +176,7 @@ def main():
             m["username"] = username
         elif args.force:
             m.pop("username", None)
-        rows.append((code, dname, name, m.get("is_admin", False), email, username))
+        rows.append((code, dname, name, default_role, email, username))
 
     emails = [r[4] for r in rows]
     dup = {e for e in emails if emails.count(e) > 1 and
@@ -183,10 +184,9 @@ def main():
     if dup:
         sys.exit("同一邮箱对应了多个不同账号，请调整规则：%s" % ", ".join(sorted(dup)))
 
-    for code, dname, name, is_admin, email, username in rows:
-        print("%s\t%s\t%s\t%s\t%s\t%s" % (code, dname, name,
-                                          "owner" if is_admin else "contributor",
-                                          email, username))
+    # 不设默认管理员：全员按 default_role 加入，部门 Owner 由超管初始化后手动指派
+    for code, dname, name, role, email, username in rows:
+        print("%s\t%s\t%s\t%s\t%s\t%s" % (code, dname, name, role, email, username))
 
     print("\n人数 %d，账号（邮箱）%d 个，用户名 %d 个" %
           (len(rows), len(set(emails)), len({r[5] for r in rows})), file=sys.stderr)

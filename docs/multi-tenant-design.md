@@ -7,7 +7,7 @@
 | 目标 | 实现方式 |
 | --- | --- |
 | 十几个部门相互隔离 | 每个部门 = 一个 WeKnora 工作空间（Tenant），所有实体（知识库、文档、会话、智能体）均带 `TenantID`，数据查询自动按租户过滤 |
-| 每部门有文档管理员 | 每部门首位人员授予 `Owner` 角色，可管理本部门文档、知识库、智能体与成员 |
+| 部门管理员由超管指定 | 初始化只按 `contributor` 批量接入人员，**不设默认管理员**；每部门的 `Owner` 由超管在初始化后逐个指派 |
 | 部门人员只能用本部门文档 | Tenant 级硬隔离：A 部门成员检索不到 B 部门任何文档，无需额外配置 |
 | 人员统一接入 | 邀请制：管理员发起邀请，成员通过邀请链接注册并加入部门工作空间 |
 | 统一管理入口 | 新门户（端口 8081）提供精美简洁的问答 + 管理界面 |
@@ -16,7 +16,7 @@
 
 ### 2.1 部门清单（共 16 个工作空间）
 
-| 基地 | 部门 | 工作空间编码 | 文档管理员 | 成员数 |
+| 基地 | 部门 | 工作空间编码 | 负责人（由超管指派） | 成员数 |
 | --- | --- | --- | --- | --- |
 | NJG（南京） | 总经理室 | `NJG-GM` | 周泽健 | 2 |
 | NJG | 经理部 | `NJG-MGR` | 李婷 | 4 |
@@ -36,20 +36,55 @@
 | SHA | 制造部 | `SHA-MFG` | 冯爱国 | 13 |
 
 > 完整人员清单见 [`data/departments-personnel.json`](../data/departments-personnel.json)。
+>
+> 「负责人」列仅供人工核对：**初始化脚本不会据此授予 `Owner`**。所有成员先以 `contributor`
+> 加入，实际 `Owner` 由超管在初始化后逐个指派（见 6.3 节）。
 
 ### 2.2 角色矩阵
 
 | 角色 | 对应人群 | 权限 |
 | --- | --- | --- |
-| `owner` | 文档管理员（每部门首位） | 管理文档、知识库、智能体、邀请/移除成员、配置检索参数 |
-| `contributor` | 普通部门成员 | 上传文档、提问问答、查看本部门知识库 |
-| 系统管理员（超管） | 平台运维人员 | 跨租户管理、创建部门工作空间、全局配置 |
+| `owner` | 文档管理员（由超管手动指派） | 门户全部功能：人员、智能体、文档/知识库管理 + 问答 |
+| `contributor` | 普通部门成员 | 仅问答与切换所属部门，**看不到也调不动**人员/智能体/文档管理 |
+| 系统管理员（超管） | 平台运维人员 | 跨租户管理、创建部门工作空间、全局配置（代理层放行） |
 
-> 注：`viewer` 角色仅查看，`admin` 介于 owner 与 contributor 之间。本方案默认文档管理员用 `owner`，普通成员用 `contributor`。
+> 注：`viewer` 角色仅查看，`admin` 介于 owner 与 contributor 之间。本方案文档管理员用 `owner`，普通成员用 `contributor`；**初始化时不自动授予 `owner`**，需由超管指派。
+
+**门户权限分级（前端 + 代理双层控制）**
+
+| 页面 | Contributor | Owner |
+| --- | --- | --- |
+| 智能问答 | ✅ | ✅ |
+| 部门管理（查看/切换） | ✅ | ✅ |
+| 人员管理 | ❌ 侧边栏隐藏、跳回问答页 | ✅ |
+| 智能体管理 | ❌ | ✅ |
+| 文档管理 | ❌ | ✅ |
+
+实现位置：
+- 前端 `portal/app.js`：`MANAGE_ROLES` / `MANAGE_PAGES` 常量 + `applyPermissionUI()` / `showPage()` 越权拦截（顶栏同时显示当前部门内的角色徽标）；系统管理员按 `/auth/me` 的 `user.is_system_admin` / `can_access_all_tenants` 额外放行，并可切换管理任意部门。
+- 代理层 `portal/server.py`：对 `POST/PUT/DELETE` 的成员/邀请、智能体、知识库与文档接口做 Owner 角色校验（带 60s 缓存），非 Owner 直接返回 403；系统超管按 `can_access_all_tenants` 放行。可用 `PORTAL_ENFORCE_ROLE=false` 关闭（不推荐）。只读的 `GET /agents`、`GET /knowledge-bases` 仍需保留给普通成员用于问答，不受此限制。
 
 ### 2.3 跨部门人员处理
 
-部分人员同时属于多个部门（如周泽健同时是 NJG 和 SHA 总经理室管理员）。WeKnora 支持一个用户加入多个工作空间，登录后通过顶部"工作空间切换器"切换当前部门，切换时系统会复核成员资格。
+部分人员同时属于多个部门（如周泽健同时是 NJG 和 SHA 总经理室管理员）。WeKnora 支持一个用户加入多个工作空间，登录后通过顶部「当前部门」切换器切换，切换时系统会复核成员资格；门户会随切换重新计算该部门内的角色（管理入口的显隐同步变化）。
+
+### 2.4 超管跨部门管理与智能体分配
+
+系统管理员（`is_system_admin` / `can_access_all_tenants`）在门户中的行为：
+
+- **管理部门**：顶栏「当前部门」下拉会列出全部部门（`/tenants/all` 补全），选中后所有管理请求带上该部门的 `X-Tenant-ID`，后端为超管在目标部门授予临时 `Admin`（**不是 Owner**：删除部门、轮换 API Key 仍需该部门真实 Owner 执行）。
+- **分配智能体**：智能体天然归属某一部门；跨部门使用通过「共享组织」实现，门户「智能体管理 → 分配到部门」弹窗完成三步：
+
+  | 步骤 | 接口 | 说明 |
+  | --- | --- | --- |
+  | 管理部门成员 | `GET/POST /organizations/{id}/members`、`POST /organizations/{id}/invite` | 把其它部门加入共享组织（编辑者/管理员），未加入的部门看不到共享智能体 |
+  | 分配智能体 | `POST /agents/{id}/shares`（`{organization_id, permission}`） | 分享到组织；门户会先自动把智能体所属部门加入组织，避免"仅编辑者可共享"的 403 |
+  | 取消分配 | `GET/DELETE /agents/{id}/shares`、`/shares/{share_id}` | 移除后各部门问答页不再显示该智能体 |
+
+  内置智能体（快速问答等）不支持共享，列表中的「分配到部门」按钮会自动隐藏。
+- **使用智能体**：被分配部门的成员在问答页左侧即可看到带「共享」标签的智能体（由 `/organizations/{id}/shared-agents` 汇总）。
+
+> 代理层同步收紧：跨部门分配涉及的组织写操作（建/改/删组织、邀请部门、移除成员）也纳入 Owner 校验，加入类接口（`join` / `join-by-id` / `join-request`）不拦截。
 
 ## 3. 隔离机制详解
 
@@ -106,16 +141,18 @@ WeKnora 生成邀请链接（含邀请令牌）
 
 执行 `scripts/multi-tenant/init-tenants.sh` 可一键完成：
 1. 创建 16 个部门工作空间
-2. 为每位成员生成邀请（文档管理员为 `owner`，其余为 `contributor`）
+2. 为每位成员生成邀请，**全部为 `contributor`**（不设默认管理员）
 3. 输出所有邀请链接汇总，便于管理员分发
+
+初始化完成后，**各部门还没有 Owner**，需由超管逐个指派（见 6.3 节）。在此之前，该部门在门户中不会出现「人员 / 智能体 / 文档」管理入口。
 
 ## 5. 新门户设计（端口 8081）
 
 ### 5.1 定位
 
-在 WeKnora 原生前端（端口 80）之外，新增一个**轻量门户**（端口 8081），面向普通员工和文档管理员，提供：
+在 WeKnora 原生前端（端口 80）之外，新增一个**轻量门户**（端口 8081）——品牌标识统一为 **OBARA 知识问答平台**，面向普通员工和文档管理员，提供：
 
-- 更精美、简洁的问答界面（默认首页）
+- 更精美、简洁的问答界面（默认首页，含智能体列表、推荐提问、引用来源卡片）
 - 部门（工作空间）管理
 - 人员（成员）管理：邀请、移除、改角色
 - 智能体管理：创建、编辑、绑定知识库与模型
@@ -144,15 +181,15 @@ WeKnora 后端 API（端口 8080）
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│  顶部栏：[工作空间切换器▼]  [当前用户头像▼ 退出]              │
+│  顶部栏：OBARA 知识问答平台 | [部门切换器▼] [用户 + 角色徽标 退出]│
 ├──────────┬──────────────────────────────────────────────────┤
 │ 侧边栏    │  主内容区                                          │
 │          │                                                    │
 │ 💬 问答   │  问答页：智能体选择 + 对话流 + 输入框               │
-│ 🏢 部门   │  部门管理：工作空间列表、创建、成员数                │
-│ 👥 人员   │  人员管理：成员列表、邀请、改角色、移除              │
-│ 🤖 智能体 │  智能体管理：列表、创建/编辑、绑定知识库             │
-│ 📄 文档   │  文档管理：知识库列表、上传文档、解析状态            │
+│ 🏢 部门   │  部门管理：工作空间列表、创建、进入                  │
+│ 👥 人员   │  人员管理：成员列表、邀请、改角色、移除   ← Owner   │
+│ 🤖 智能体 │  智能体管理：列表、创建/编辑、绑定知识库   ← Owner  │
+│ 📄 文档   │  文档管理：知识库列表、上传文档、解析状态  ← Owner  │
 │          │                                                    │
 └──────────┴──────────────────────────────────────────────────┘
 ```
@@ -166,6 +203,25 @@ WeKnora 后端 API（端口 8080）
 | 圆角 | 卡片 `12px`、按钮 `8px`、消息气泡 `16px` |
 | 字体 | 系统默认中文字体栈（PingFang SC / Microsoft YaHei / sans-serif） |
 | 布局 | 左侧固定侧边栏 240px，主内容区自适应 |
+
+### 5.5 版本号规则
+
+侧边栏左下角显示门户的**构建版本号**（由 `scripts/portal/build-version.py` 写入 `portal/index.html` 的 `#build-version` 节点）：
+
+| 场景 | 显示 | 说明 |
+| --- | --- | --- |
+| 当天第 1 次构建 | `当前版本 26-10-25` | `YY-MM-DD` 为 `index.html` 的构建日期 |
+| 当天第 2 次构建 | `当前版本 26-10-25-V2` | 同一天后续构建依次 `-V3`、`-V4`… |
+| 跨天 | 重新从无后缀开始 | 序号按日期归零 |
+
+日期与序号保存在 `data-date` / `data-build` 属性上，换机器或重新克隆仓库后仍能接着当天序号递增；每次改动门户页面后执行一次：
+
+```bash
+python3 scripts/portal/build-version.py          # 递增并写入
+python3 scripts/portal/build-version.py --check  # 只看不改
+```
+
+> `bash portal/start.sh` 启动时会自动调用；通过 systemd（`obara-portal.service`）重启不会递增，需手工执行。
 
 ## 6. 部署步骤
 
@@ -191,22 +247,55 @@ docker compose up -d --force-recreate app
 ```bash
 cd /path/to/obara-weknora-setup
 sudo ADMIN_PASSWORD='<管理员密码>' bash scripts/multi-tenant/init-tenants.sh
-# 脚本会输出所有部门的邀请链接汇总，保存后分发给各部门文档管理员
+# 脚本会输出所有部门的邀请链接与账号汇总，保存后分发给各部门负责人
 ```
 
-### 6.4 启动门户
+**初始化不设默认管理员**：所有成员先以 `contributor` 加入本部门空间，`data/departments-personnel.json`
+中的 `is_admin` / `admin_role` 配置已废弃（即使存在也会被脚本忽略）。
+
+### 6.3.1 手动指派各部门文档管理员（必做）
+
+初始化完成后，由超管在 **WeKnora 原生后台（端口 80）** 逐个指定：
+
+1. 用超管账号登录 `http://<虚拟机IP>:80`
+2. 切换到目标部门工作空间 →「成员」（或「人员管理」）页面
+3. 找到该部门负责人 → 把角色改为 **`owner`（文档管理员）** → 保存
+4. 逐个部门重复，直到 16 个部门都有至少一名 `owner`
+
+> 指派前该部门在门户中没有「人员 / 智能体 / 文档」管理入口；指派完成后，被指定的成员
+> 刷新门户即可看到管理菜单，并可自行邀请本部门其他成员。
+> 如需换人，把原负责人改回 `contributor`、再给新负责人 `owner` 即可。
+
+### 6.4 启动门户与开机自启
 
 ```bash
-cd /path/to/obara-weknora-setup/portal
-bash start.sh          # 默认端口 8081，代理到 127.0.0.1:8080
-# 后台运行：nohup bash start.sh > portal.log 2>&1 &
+cd /path/to/obara-weknora-setup
+
+# 一键启动全部服务：Ollama → WeKnora 容器（含 Rerank）→ 8081 门户
+bash scripts/start-all.sh
+
+# 状态 / 重启 / 停止
+bash scripts/start-all.sh status
+bash scripts/start-all.sh restart
+bash scripts/start-all.sh stop
 ```
 
-访问 `http://<虚拟机IP>:8081` 即可使用门户。
+首次部署或仓库目录变更后，安装门户开机自启：
+
+```bash
+sudo bash scripts/deploy/install-autostart.sh
+# 卸载：sudo bash scripts/deploy/install-autostart.sh --uninstall
+```
+
+访问 `http://<虚拟机IP>:8081` 即可使用门户。虚拟机重启后无需手工启动：Docker 按 `restart: unless-stopped` 拉起 WeKnora 容器（含 `weknora-rerank`），Ollama 与 `obara-portal.service` 随 systemd 自启。
+
+门户日志：`journalctl -u obara-portal -f`；前台调试仍可使用 `bash portal/start.sh`。
 
 ### 6.5 部门文档管理员操作
 
-1. 文档管理员使用邀请链接注册并登录门户
+前提：已被超管指派为本部门 `owner`（见 6.3.1 节）。
+
+1. 文档管理员登录门户
 2. 在「文档管理」中创建本部门知识库、上传文档
 3. 在「智能体管理」中创建问答智能体，绑定本部门知识库
 4. 在「人员管理」中邀请本部门其他成员
@@ -221,9 +310,11 @@ bash start.sh          # 默认端口 8081，代理到 127.0.0.1:8080
 | `scripts/multi-tenant/init-tenants.sh` | 一键创建工作空间 + 批量邀请脚本 |
 | `portal/index.html` | 门户主页面 |
 | `portal/styles.css` | 门户样式 |
-| `portal/app.js` | 门户前端逻辑（问答 + 四大管理模块） |
-| `portal/server.py` | 门户 HTTP 服务 + API 反向代理（端口 8081） |
+| `portal/app.js` | 门户前端逻辑（问答 + 四大管理模块；含 Owner 角色权限控制） |
+| `portal/server.py` | 门户 HTTP 服务 + API 反向代理（端口 8081）；管理类写操作 Owner 二次鉴权 |
 | `portal/start.sh` | 门户启动脚本 |
+| `scripts/start-all.sh` | 一键启动/停止/重启/查看全部服务（Ollama + WeKnora + 门户） |
+| `scripts/deploy/install-autostart.sh` | 安装/卸载门户（8081）systemd 开机自启 |
 
 ## 8. 注意事项
 

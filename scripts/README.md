@@ -1,10 +1,12 @@
 # 脚本索引
 
-本目录按用途分为四类。**部署流程**脚本放在 `deploy/`，**非部署流程**脚本放在 `kb/`（知识库初始化与验收）、`docs-site/`（文档站构建）和 `multi-tenant/`（多租户部门初始化）。
+本目录按用途分为三类。**部署流程**脚本放在 `deploy/`，**非部署流程**脚本放在 `kb/`（知识库初始化与验收）、`docs-site/`（文档站构建）和 `multi-tenant/`（多租户部门初始化），**运维脚本**为根目录的 `start-all.sh`。
 
 ```
 scripts/
-├── deploy/        # 部署流程：环境与组件部署（README 阶段一～五）
+├── start-all.sh   # 运维：一键启动/停止/重启全部服务
+├── portal/        # 非部署：门户构建工具（构建版本号打标）
+├── deploy/        # 部署流程：环境与组件部署（README 阶段一～五）+ 门户开机自启
 ├── kb/            # 非部署：知识库初始化、验收与数据转换（README 阶段六）
 ├── multi-tenant/  # 非部署：多租户部门工作空间与人员初始化（邀请制）
 └── docs-site/     # 非部署：文档站构建（GitHub Pages）
@@ -22,6 +24,7 @@ scripts/
 | `deploy/install-ollama.sh` | 阶段三：安装 Ollama 服务并拉取 Embedding 模型 | `sudo bash scripts/deploy/install-ollama.sh` |
 | `deploy/configure-deepseek.sh` | 阶段四：注册 DeepSeek 对话模型与本地 Ollama 向量模型并验证连通性 | `sudo DEEPSEEK_API_KEY='sk-xxxxx' bash scripts/deploy/configure-deepseek.sh` |
 | `deploy/install-rerank.sh` | 阶段五：部署本地 Rerank 服务容器并注册到 WeKnora | `sudo bash scripts/deploy/install-rerank.sh` |
+| `deploy/install-autostart.sh` | 安装门户（8081）systemd 开机自启，并确认 Docker、Ollama 自启 | `sudo bash scripts/deploy/install-autostart.sh` |
 
 ### 通用前提
 
@@ -168,6 +171,37 @@ sudo bash scripts/deploy/install-rerank.sh --model BAAI/bge-reranker-base --engi
 > ⚠️ 本机 12 核时推荐 `--cpus 6 --batch-size 8`；实测 2 核→6 核延迟下降约 35%，该服务对算力敏感。
 > ⚠️ `Qwen/Qwen3-Reranker-0.6B` 目前**无法**在 `michaelf34/infinity:0.0.78-cpu` 上加载（内置 transformers 不识别 `qwen3` 架构），因此默认用 `BAAI/bge-reranker-v2-m3`。
 
+### install-autostart.sh
+
+用途：安装门户（8081）的 systemd 开机自启服务 `obara-portal.service`，并确认 `docker.service`、`ollama.service` 也已启用。对应主文档《README》5.1 节与《多租户方案》6.4 节。
+
+```bash
+sudo bash scripts/deploy/install-autostart.sh               # 安装并立即启动
+sudo bash scripts/deploy/install-autostart.sh --uninstall   # 卸载自启
+```
+
+主要步骤：
+
+1. 校验 `python3` 与 `portal/server.py`，解析运行用户（优先 `sudo` 执行者，否则仓库目录属主）
+2. 检查 8081 是否被非本服务进程占用，避免启动冲突
+3. 写入 `/etc/systemd/system/obara-portal.service`：
+   - `After=network-online.target docker.service ollama.service`
+   - `Restart=always`、`RestartSec=3`
+   - `ExecStart=python3 portal/server.py --port 8081 --upstream http://127.0.0.1:8080`
+4. `systemctl enable` 并启动，同时幂等确认 Docker、Ollama 已启用
+5. 轮询 8081 健康检查，输出访问地址与日志命令
+
+常用命令：
+
+```bash
+systemctl status obara-portal
+journalctl -u obara-portal -f
+sudo systemctl restart obara-portal
+```
+
+> 门户直接运行仓库内的 `portal/server.py`，**移动仓库目录后需重新执行安装脚本**。
+> 虚拟机重启后：Docker 按 `restart: unless-stopped` 拉起 WeKnora 容器（含 `weknora-rerank`），Ollama 与门户由 systemd 自启，无需手工操作即可访问 8081。
+
 ## 二、非部署脚本（`kb/`）
 
 知识库初始化、验收与数据转换，对应主文档《README》阶段六。这些脚本不改变部署环境，只在已部署完成的 WeKnora 上操作数据。
@@ -184,7 +218,8 @@ sudo bash scripts/deploy/install-rerank.sh --model BAAI/bge-reranker-base --engi
 
 | 脚本 | 用途 | 执行命令 |
 | --- | --- | --- |
-| `multi-tenant/init-tenants.sh` | 读取 `data/departments-personnel.json`，一键创建 16 个部门工作空间并批量邀请成员（文档管理员=Owner，其余=Contributor），输出邀请链接汇总 | `sudo ADMIN_PASSWORD='<后台密码>' bash scripts/multi-tenant/init-tenants.sh` |
+| `multi-tenant/init-tenants.sh` | 读取 `data/departments-personnel.json`，一键创建 16 个部门工作空间并批量邀请成员（**全部为 Contributor，不设默认管理员**），输出邀请链接汇总；建空间后会自动调用下面的绑定脚本 | `sudo ADMIN_PASSWORD='<后台密码>' bash scripts/multi-tenant/init-tenants.sh` |
+| `multi-tenant/bind-agent-models.sh` | 为各工作空间的内置「快速问答」智能体绑定本空间的对话模型 / 重排模型（幂等，可单独执行） | `ADMIN_PASSWORD='<后台密码>' bash scripts/multi-tenant/bind-agent-models.sh` |
 
 常用参数：
 
@@ -192,10 +227,16 @@ sudo bash scripts/deploy/install-rerank.sh --model BAAI/bge-reranker-base --engi
 sudo bash scripts/multi-tenant/init-tenants.sh --dry-run            # 只打印计划，不调用 API
 sudo bash scripts/multi-tenant/init-tenants.sh --only-dept NJG-DEV2 # 只处理指定部门
 sudo bash scripts/multi-tenant/init-tenants.sh --base-url http://192.168.227.133:8080
+sudo bash scripts/multi-tenant/init-tenants.sh --no-bind-models      # 不绑定智能体模型
+
+ADMIN_PASSWORD='<后台密码>' bash scripts/multi-tenant/bind-agent-models.sh --tenants 10003,10004  # 只处理指定空间
+ADMIN_PASSWORD='<后台密码>' bash scripts/multi-tenant/bind-agent-models.sh --dry-run               # 只打印计划
 ```
 
 > 前置条件：WeKnora 已运行、管理员账号已创建、建议先开启 RBAC（`.env` 中 `WEKNORA_TENANT_ENABLE_RBAC=true`）。
-> 邀请链接汇总输出到 `output/invitations-<时间戳>.txt`，由管理员分发给各部门文档管理员。
+> 邀请链接汇总输出到 `output/invitations-<时间戳>.txt`，由管理员分发给各部门负责人。
+> 脚本不设默认管理员：初始化后所有人都是 Contributor，需由超管在原生后台（端口 80）
+> 「工作空间 → 成员」中逐个把部门负责人改为 Owner，否则该部门没有管理入口。
 
 ## 四、非部署脚本（`docs-site/`）
 
@@ -206,7 +247,47 @@ sudo bash scripts/multi-tenant/init-tenants.sh --base-url http://192.168.227.133
 | `docs-site/build-docs-site.py` | 扫描仓库 Markdown → 渲染单页静态站点（输出到 `site/`） | `python3 scripts/docs-site/build-docs-site.py` |
 | `docs-site/docs-site-template.html` | 文档站页面模板（侧栏导航、页内目录、深浅色主题） | 由 `build-docs-site.py` 读取 |
 
-## 五、部署脚本常见问题
+## 五、运维脚本（`scripts/` 根目录）
+
+| 脚本 | 用途 | 执行命令 |
+| --- | --- | --- |
+| `start-all.sh` | 一键启动/停止/重启/查看全部服务：Ollama → WeKnora 容器（含独立 Rerank 容器）→ 8081 门户；自动等待 8080 健康检查并输出访问地址 | `bash scripts/start-all.sh` |
+
+```bash
+bash scripts/start-all.sh            # 启动全部（默认）
+bash scripts/start-all.sh status     # 状态与健康检查
+bash scripts/start-all.sh restart    # 重启全部
+bash scripts/start-all.sh stop       # 停止门户与 WeKnora 容器（Ollama 保持运行）
+```
+
+可选环境变量：
+
+| 变量 | 默认值 | 说明 |
+| --- | --- | --- |
+| `WEKNORA_DIR` | `/opt/obara/weknora` | WeKnora compose 目录 |
+| `PORTAL_PORT` | `8081` | 门户端口 |
+| `WEKNORA_URL` | `http://127.0.0.1:8080` | WeKnora 后端地址 |
+
+> 开机自启由 `deploy/install-autostart.sh` 安装。虚拟机重启后，Docker 按 `restart: unless-stopped` 拉起 WeKnora 容器，Ollama 与门户由 systemd 自启。
+> 若执行过 `start-all.sh stop` 后关机，容器不会自动回来，开机后执行一次 `bash scripts/start-all.sh` 即可。
+
+## 六、非部署脚本（`portal/`）
+
+门户（8081）构建辅助工具，不影响部署环境，只在仓库内改写 `portal/index.html`。
+
+| 脚本 | 用途 | 执行命令 |
+| --- | --- | --- |
+| `portal/build-version.py` | 给门户打构建版本号：左下角显示「当前版本 YY-MM-DD」；同一天再次构建追加序号（`-V2`、`-V3`…），跨天重新从 `-V1` 计数。日期与序号记录在 `index.html` 的 `data-date` / `data-build` 属性上 | `python3 scripts/portal/build-version.py`（`--check` 只看不写，`--file <path>` 指定文件） |
+
+```bash
+python3 scripts/portal/build-version.py           # 递增一次并写入
+python3 scripts/portal/build-version.py --check   # 查看当前版本号
+```
+
+> 每次修改门户页面（index / 样式 / 前端逻辑）后执行一次，即可保持左下角版本号与构建次数一致。
+> `bash portal/start.sh` 启动时会自动调用该脚本；systemd 自启方式不会自动递增，需手工执行。
+
+## 七、部署脚本常见问题
 
 | 现象 | 处理 |
 | --- | --- |
@@ -218,6 +299,10 @@ sudo bash scripts/multi-tenant/init-tenants.sh --base-url http://192.168.227.133
 | `install-rerank.sh` 权重下载慢或中断 | 脚本已支持断点续传，直接重跑即可；也可先手工下载再放为 `--model-dir` |
 | `install-rerank.sh` 卡在"等待模型加载就绪" | 查看 `docker logs -f weknora-rerank`；内存不足时下调 `--batch-size`，或给容器加核/加内存后 `--recreate` |
 | `install-rerank.sh` 报"登录失败" | 用 `--admin-password` 传入后台实际密码；或先 `--no-register` 完成部署，再到后台手工注册 |
+| 8081 打不开 / 门户未启动 | 先看 `systemctl status obara-portal`；未安装自启时执行 `bash scripts/start-all.sh`，或安装 `sudo bash scripts/deploy/install-autostart.sh` |
+| 8081 端口被占用 | `sudo ss -ltnp \| grep ':8081'` 定位进程；可执行 `bash scripts/start-all.sh stop` 停止门户后再安装自启 |
+| 移动仓库目录后门户启动失败 | 重新执行 `sudo bash scripts/deploy/install-autostart.sh` 更新 systemd 中的工作目录与脚本路径 |
+| 执行过 `start-all.sh stop` 后重启虚机，容器没回来 | 容器为 `unless-stopped` 策略，手动停止后不会自动启动；执行一次 `bash scripts/start-all.sh` |
 
 ## 相关文档
 

@@ -3,7 +3,7 @@
 > 面向汇报与交接的**精简阶段总结**，覆盖已完成的阶段一～阶段五。
 > 命令级执行细节见 [`docs/deployment-log.md`](deployment-log.md)，完整方案与验收清单见顶层 [`README.md`](../../README.md)。
 >
-> 最后更新：2026-10-25（阶段五完成）
+> 最后更新：2026-10-26（新增门户开机自启与一键启停）
 
 ---
 
@@ -16,6 +16,7 @@
 [✅] 阶段四  DeepSeek 对话模型配置      —— 完成
 [✅] 阶段五  本地 Rerank 重排服务       —— 完成（服务 + 注册 + 端到端验证通过）
 [🔄] 阶段六  知识库初始化与验收         —— 链路已通；扁平格式重导待决策
+[✅] 运维    门户开机自启与一键启停      —— 完成（8081 已 enabled，重启后自动恢复）
 ```
 
 | 阶段 | 交付结果 | 状态 |
@@ -26,6 +27,7 @@
 | 四、DeepSeek | `deepseek-flash`（快速问答）+ `deepseek-v4-pro`（智能推理）已注册且 `active`，上游调用验证通过；Embedding 指向本机 `bge-m3` | ✅ |
 | 五、Rerank | `infinity 0.0.78-cpu` 容器 `weknora-rerank`（7997）+ `bge-reranker-v2-m3`，已注册且端到端调用通过（`ok=true`，1.3s / 3 条候选） | ✅ |
 | 六、知识库 | 知识库与「焊枪选型助手」智能体已建好并完成端到端验收（随机抽样 10/10、延迟 20 s）；发现 `num_ctx=511` 截断缺陷，已给出扁平重导方案，全量导入待决策 | 🔄 |
+| 运维、启动 | 门户（8081）已安装 `obara-portal.service` 开机自启；新增 `start-all.sh` 一键启停；虚机重启后 Ollama / WeKnora / Rerank / 门户自动恢复 | ✅ |
 
 ---
 
@@ -151,11 +153,15 @@
 | `scripts/deploy/install-ollama.sh` | 阶段三：Ollama 服务安装 + Embedding 模型拉取 |
 | `scripts/deploy/configure-deepseek.sh` | 阶段四：注册 DeepSeek 对话模型与本地 Ollama 向量模型，并做上游连通性验证（幂等） |
 | `scripts/deploy/install-rerank.sh` | 阶段五：部署本地 Rerank 服务容器（infinity）并注册到 WeKnora，含权重下载、就绪判定与端到端验证（幂等） |
+| `scripts/deploy/install-autostart.sh` | 运维：安装/卸载门户（8081）systemd 开机自启，并确认 Docker、Ollama 自启（幂等） |
+| `scripts/start-all.sh` | 运维：一键启动/停止/重启/查看全部服务（Ollama + WeKnora 容器 + Rerank + 门户），含健康检查 |
 | `scripts/kb/init-welding-gun-kb.sh` | 阶段六：建库 + 绑定模型 + 导入文档 + 创建受管智能体 + 写入检索参数（幂等，支持 `--no-wait` / `--status`） |
 | `scripts/kb/verify-welding-gun-kb.sh` | 阶段六：端到端验收，抽取真实记录自动生成提问并按容差规则回溯校验答案 |
 | `scripts/kb/build-flat-kb.py` | 阶段六：把宽表重建为"一行一段"自然语言短句，消除 `num_ctx=511` 截断 |
 | `docs/deployment/deployment-log.md` | 各阶段的实际执行记录、踩坑与运维手册 |
 | `docs/deployment/stage-summary.md` | 本文件：阶段精简总结 |
+
+**服务启动与自启**：虚拟机重启后，Docker 按 `restart: unless-stopped` 拉起 WeKnora 容器（含 `weknora-rerank`），Ollama 与门户 `obara-portal.service` 由 systemd 自启，直接访问 `http://<虚拟机IP>:8081`；日常可用 `bash scripts/start-all.sh` 一键启停。详见 README §5.1 与 [`deployment-log.md`](deployment-log.md) §七之三。
 
 ---
 

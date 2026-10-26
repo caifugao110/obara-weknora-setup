@@ -7,10 +7,20 @@
 #   2) 为每个部门创建工作空间（Tenant），同名已存在则跳过（幂等）
 #   3) 为每位成员创建账号（邮箱取自 data/departments-personnel.json 的 email 字段，
 #      规则为「姓全拼+名首字母@obara.com.cn」，可用 gen-emails.py 生成），已注册则跳过
-#   4) 把成员直接加入部门空间：文档管理员=owner，其余=contributor（已加入则跳过）
+#   4) 把成员直接加入部门空间：全部为 contributor，不设默认管理员（已加入则跳过）
 #   5) 把平台空间已注册的模型注入每个部门空间（模型是空间级资源，新空间默认没有模型）
-#   6) 为每个部门生成 owner / contributor 两条共享邀请链接，供后续补员与换人使用
-#   7) 汇总输出 output/invitations-<时间戳>.txt 与 output/accounts-<时间戳>.csv
+#   6) 为每个部门的内置「快速问答」智能体绑定本空间的对话模型 / 重排模型
+#      （内置智能体默认 model_id 为空，不绑定则提问时后端报 chat model is not configured，
+#        且错误不进 SSE 流，页面表现为一直转圈、无法问答）
+#   7) 为每个部门生成 owner / contributor 两条共享邀请链接，供后续补员与换人使用
+#   8) 汇总输出 output/invitations-<时间戳>.txt 与 output/accounts-<时间戳>.csv
+#
+# 关于部门管理员：
+#   初始化不自动授予 owner：即使 JSON 中保留了 is_admin 标记也会被忽略，所有人先以
+#   contributor 身份加入本部门空间。初始化完成后，由超管在 WeKnora 原生后台（端口 80）
+#   「工作空间 → 成员」中把各部门负责人逐个改为 owner（文档管理员），该部门才会出现
+#   「人员 / 智能体 / 文档」管理入口。
+#   第 7 步生成的 owner 邀请链接同样会把使用者直接变成部门管理员，只发给已确定的负责人。
 #
 # 用法：
 #   sudo ADMIN_PASSWORD='<后台密码>' bash scripts/multi-tenant/init-tenants.sh
@@ -19,6 +29,7 @@
 #   sudo bash scripts/multi-tenant/init-tenants.sh --base-url http://192.168.227.133:8080
 #   sudo bash scripts/multi-tenant/init-tenants.sh --links-only            # 只建空间 + 邀请链接，不动账号
 #   sudo bash scripts/multi-tenant/init-tenants.sh --no-links              # 不生成邀请链接
+#   sudo bash scripts/multi-tenant/init-tenants.sh --no-bind-models        # 不绑定智能体模型
 #
 # 前置条件：
 #   - WeKnora 已运行（后端 8080）
@@ -39,6 +50,7 @@ DRY_RUN="false"
 CREATE_ACCOUNTS="true"
 CREATE_LINKS="true"
 SEED_MODELS="true"
+BIND_AGENT_MODELS="true"
 MODEL_SOURCE_TENANT="${MODEL_SOURCE_TENANT:-10000}"
 DB_CONTAINER="${DB_CONTAINER:-WeKnora-postgres}"
 DB_NAME="${DB_NAME:-WeKnora}"
@@ -58,10 +70,11 @@ while [[ $# -gt 0 ]]; do
     --links-only)      CREATE_ACCOUNTS="false"; shift ;;
     --no-links)        CREATE_LINKS="false"; shift ;;
     --no-models)       SEED_MODELS="false"; shift ;;
+    --no-bind-models)  BIND_AGENT_MODELS="false"; shift ;;
     --model-source-tenant) MODEL_SOURCE_TENANT="${2}"; shift 2 ;;
     --db-container)    DB_CONTAINER="${2}"; shift 2 ;;
     --db-name)         DB_NAME="${2}"; shift 2 ;;
-    -h|--help)         sed -n '2,32p' "$0"; exit 0 ;;
+    -h|--help)         sed -n '2,39p' "$0"; exit 0 ;;
     *) echo "❌ 未知参数：$1（--help 查看用法）" >&2; exit 1 ;;
   esac
 done
@@ -197,8 +210,8 @@ wanted = {c.strip() for c in only_dept.split(',') if c.strip()}
 with open(data_file, encoding='utf-8') as f:
     data = json.load(f)
 domain = data.get('email_domain', 'obara.com.cn')
-admin_role = data.get('admin_role', 'owner')
 default_role = data.get('default_role', 'contributor')
+ignored_admin = 0
 for loc in data.get('locations', []):
     for dept in loc.get('departments', []):
         code = dept['code']
@@ -210,8 +223,14 @@ for loc in data.get('locations', []):
             email = m.get('email') or '%s@%s' % (name, domain)
             # 用户名全局唯一：重名者用「姓名(部门)」区分，生成规则见 gen-emails.py
             username = m.get('username') or name
-            role = admin_role if m.get('is_admin') else default_role
-            print('MEMBER\t%s\t%s\t%s\t%s\t%s' % (code, name, email, role, username))
+            # 不设默认管理员：一律以普通成员加入，部门 Owner 由超管初始化后手动指派
+            if m.get('is_admin'):
+                ignored_admin += 1
+            print('MEMBER\t%s\t%s\t%s\t%s\t%s' % (code, name, email, default_role, username))
+
+if ignored_admin:
+    print('⚠️ 数据中有 %d 个 is_admin 标记，已忽略：初始化不设默认管理员，'
+          '部门 Owner 由超管在后台手动指派。' % ignored_admin, file=sys.stderr)
 PY
 
 TOTAL_DEPT="$(grep -c '^DEPT' "${PLAN_FILE}" || true)"
@@ -411,6 +430,25 @@ WHERE m.tenant_id = ${MODEL_SOURCE_TENANT} AND m.deleted_at IS NULL
   fi
 fi
 
+# ---------------------------------------------------------------- 5b. 绑定模型到内置智能体
+# 只注入模型行不够：内置智能体 builtin-quick-answer 的 model_id 默认为空，
+# 提问时后端直接报 chat model is not configured 且不写入 SSE 流，页面会一直转圈。
+log "==> [5/7] 为部门空间的内置「快速问答」智能体绑定模型"
+if [[ "${BIND_AGENT_MODELS}" != "true" ]]; then
+  log "    已跳过（--no-bind-models）"
+elif [[ "${DRY_RUN}" == "true" || ${DEPT_COUNT} -eq 0 ]]; then
+  log "    [dry-run] 跳过绑定智能体模型"
+else
+  BIND_TIDS=""
+  for code in "${!TENANT_IDS[@]}"; do
+    BIND_TIDS="${BIND_TIDS:+${BIND_TIDS},}${TENANT_IDS[${code}]}"
+  done
+  BIND_ARGS=(--base-url "${BASE_URL}" --admin-email "${ADMIN_EMAIL}" --tenants "${BIND_TIDS}")
+  [[ -n "${ADMIN_PASSWORD}" ]] && BIND_ARGS+=(--admin-password "${ADMIN_PASSWORD}")
+  bash "${REPO_ROOT}/scripts/multi-tenant/bind-agent-models.sh" "${BIND_ARGS[@]}" \
+    || err "    绑定智能体模型有失败项，请检查上方输出"
+fi
+
 # ---------------------------------------------------------------- 6. 校验
 log "==> [6/7] 校验各部门成员数"
 if [[ "${DRY_RUN}" == "true" ]]; then
@@ -443,10 +481,14 @@ cat >> "${SUMMARY}" <<EOF
 
   ⚠️ accounts CSV 含初始密码，属敏感文件，分发后请妥善保管并删除。
 
+  ⚠️ 初始化未设置任何部门管理员：所有人当前都是 contributor（普通成员）。
+
   后续操作：
-    1. 把各部门「文档管理员（owner）」的账号/密码单独发给本人，要求首次登录后改密
-    2. 把成员账号密码或部门 contributor 邀请链接发给各部门文档管理员分发
-    3. 文档管理员登录门户（http://<虚拟机IP>:8081）后：
+    1. 由超管登录 WeKnora 原生后台（http://<虚拟机IP>:80），进入
+       「工作空间 → 成员」，把各部门负责人逐个改为 owner（文档管理员）
+       ——这一步必须做，否则该部门没有「人员 / 智能体 / 文档」管理入口
+    2. 把成员账号密码或部门 contributor 邀请链接发给各部门负责人分发
+    3. 被指定为文档管理员的成员登录门户（http://<虚拟机IP>:8081）后：
        「文档管理」建知识库并上传文档 → 「智能体管理」建智能体并绑定知识库
     4. 普通成员登录门户后即可在「问答」页对本部门文档提问
 EOF
@@ -461,6 +503,9 @@ echo "  新加入成员 ${STAT_NEW_MEMBER} / 已存在 ${STAT_SKIP_MEMBER} / 失
 echo
 echo "  邀请与账号汇总：${SUMMARY}"
 echo "  账号密码清单：  ${ACCOUNTS}（敏感，请妥善保管）"
+echo
+echo "  ⚠️ 未设置任何部门管理员，当前所有人都是 contributor（普通成员）。"
+echo "     请由超管在原生后台逐个指派各部门 owner，详见汇总文件「后续操作」。"
 echo
 echo "  门户地址：http://<虚拟机IP>:8081"
 echo "  WeKnora 原生后台：http://<虚拟机IP>:80"
