@@ -14,8 +14,11 @@
 #        且错误不进 SSE 流，页面表现为一直转圈、无法问答）
 #   7) 为每个部门生成 owner / contributor 两条共享邀请链接，供后续补员与换人使用
 #   8) 汇总输出 output/invitations-<时间戳>.txt 与 output/accounts-<时间戳>.csv
+#   9) 保证超管（admin@obara.local）在「所有」部门都具备管理员身份（幂等，第 5c 步）
 #
 # 关于部门管理员：
+#   平台超管（admin）默认就是所有部门的管理员：新建空间时后端会把创建者置为 Owner，
+#   第 5c 步再对历史空间做一次补齐 / 提升，见 scripts/multi-tenant/ensure-admin-all-departments.sh。
 #   初始化不自动授予 owner：即使 JSON 中保留了 is_admin 标记也会被忽略，所有人先以
 #   contributor 身份加入本部门空间。初始化完成后，由超管在 WeKnora 原生后台（端口 80）
 #   「工作空间 → 成员」中把各部门负责人逐个改为 owner（文档管理员），该部门才会出现
@@ -449,6 +452,23 @@ else
     || err "    绑定智能体模型有失败项，请检查上方输出"
 fi
 
+# ---------------------------------------------------------------- 5c. 超管加入所有部门
+# 「admin 默认是所有部门的管理员」：新建空间时后端已把创建者置为 Owner，这里再兜一次，
+# 把历史空间、以及被原生后台改低了的超管身份统一补齐/提升（幂等，可反复执行）。
+log "==> [5c/7] 保证 ${ADMIN_EMAIL} 在所有部门的管理员身份"
+if [[ "${DRY_RUN}" == "true" ]]; then
+  log "    [dry-run] 跳过"
+else
+  if docker ps --format '{{.Names}}' 2>/dev/null | grep -qx "${DB_CONTAINER}"; then
+    bash "${REPO_ROOT}/scripts/multi-tenant/ensure-admin-all-departments.sh" \
+        --admin-email "${ADMIN_EMAIL}" --db-container "${DB_CONTAINER}" --db-name "${DB_NAME}" \
+      || err "    补齐超管部门身份有失败项，请检查上方输出"
+  else
+    log "    容器 ${DB_CONTAINER} 不在本机，跳过；请到部署机上执行："
+    log "      sudo bash scripts/multi-tenant/ensure-admin-all-departments.sh"
+  fi
+fi
+
 # ---------------------------------------------------------------- 6. 校验
 log "==> [6/7] 校验各部门成员数"
 if [[ "${DRY_RUN}" == "true" ]]; then
@@ -481,7 +501,8 @@ cat >> "${SUMMARY}" <<EOF
 
   ⚠️ accounts CSV 含初始密码，属敏感文件，分发后请妥善保管并删除。
 
-  ⚠️ 初始化未设置任何部门管理员：所有人当前都是 contributor（普通成员）。
+  ⚠️ 初始化未设置任何部门管理员：除平台超管（${ADMIN_EMAIL}）外，所有人当前都是
+     contributor（普通成员）——超管在第 5c 步已是所有部门的管理员。
 
   后续操作：
     1. 由超管登录 WeKnora 原生后台（http://<虚拟机IP>:80），进入

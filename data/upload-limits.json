@@ -1,0 +1,22 @@
+{
+  "_comment": "门户文档上传限制：系统管理员可在「文档管理 → 上传限制设置」中调整，取值须落在 ranges 区间内。",
+  "limits": {
+    "max_files_per_upload": 50,
+    "max_file_size_mb": 50,
+    "max_total_size_mb": 200
+  },
+  "ranges": {
+    "max_files_per_upload": {
+      "min": 1,
+      "max": 500
+    },
+    "max_file_size_mb": {
+      "min": 1,
+      "max": 200
+    },
+    "max_total_size_mb": {
+      "min": 10,
+      "max": 2000
+    }
+  }
+}

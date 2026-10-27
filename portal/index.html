@@ -114,10 +114,28 @@
             <span id="user-name" class="user-name">用户</span>
             <span id="user-role" class="role-chip role-chip-none">—</span>
           </div>
-          <div class="user-avatar" id="user-avatar">U</div>
-          <button class="icon-btn" title="退出登录" onclick="logout()">
-            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5"/><path d="M21 12H9"/></svg>
+          <div class="user-avatar" id="user-avatar" title="账号设置" onclick="toggleUserMenu(event)">U</div>
+          <button class="icon-btn" title="账号设置" onclick="toggleUserMenu(event)">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
           </button>
+          <div id="user-menu" class="user-menu hidden">
+            <div class="user-menu-head">
+              <span id="user-menu-name" class="user-menu-title">—</span>
+              <span id="user-menu-email" class="user-menu-email">—</span>
+            </div>
+            <button class="user-menu-item" onclick="showMyEmailModal()">
+              <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/></svg>
+              修改登录邮箱
+            </button>
+            <button class="user-menu-item" onclick="showMyPasswordModal()">
+              <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="10" width="16" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>
+              修改密码
+            </button>
+            <button class="user-menu-item danger" onclick="logout()">
+              <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5"/><path d="M21 12H9"/></svg>
+              退出登录
+            </button>
+          </div>
         </div>
       </div>
     </header>
@@ -131,6 +149,10 @@
           <a class="nav-item active" data-page="chat" onclick="showPage('chat')">
             <span class="nav-icon"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.5 8.5 0 0 1-8.5 8.5 8.4 8.4 0 0 1-3.8-.9L3 21l1.9-5.6A8.4 8.4 0 0 1 4 11.5 8.5 8.5 0 0 1 12.5 3 8.5 8.5 0 0 1 21 11.5z"/></svg></span>
             <span>智能问答</span>
+          </a>
+          <a class="nav-item" data-page="history" onclick="showPage('history')">
+            <span class="nav-icon"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/></svg></span>
+            <span>对话历史</span>
           </a>
           <a class="nav-item" data-page="departments" onclick="showPage('departments')">
             <span class="nav-icon"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M9 8h.01M15 8h.01M9 12h.01M15 12h.01M9 16h6"/></svg></span>
@@ -151,12 +173,28 @@
               <span class="nav-icon"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg></span>
               <span>文档管理</span>
             </a>
+            <a class="nav-item" data-page="builtin-agents" onclick="showPage('builtin-agents')">
+              <span class="nav-icon"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M8 4v16"/><circle cx="15" cy="10" r="1.5"/><circle cx="15" cy="15" r="1.5"/></svg></span>
+              <span>内置智能体</span>
+            </a>
+          </div>
+
+          <div class="nav-group" id="nav-group-platform">
+            <p class="nav-group-title">平台管理</p>
+            <a class="nav-item" data-page="all-conversations" onclick="showPage('all-conversations')">
+              <span class="nav-icon"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 20a4 4 0 0 0 4-4v-1a3 3 0 0 0-3-3 5 5 0 0 0-4 2 5 5 0 0 0-4-2 3 3 0 0 0-3 3v1a4 4 0 0 0 4 4"/><circle cx="12" cy="7" r="3"/></svg></span>
+              <span>全员对话</span>
+            </a>
+            <a class="nav-item" data-page="upload-records" onclick="showPage('upload-records')">
+              <span class="nav-icon"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4"/><path d="m7 9 5-5 5 5"/><path d="M4 16v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg></span>
+              <span>文档上传记录</span>
+            </a>
           </div>
         </nav>
 
         <div class="sidebar-footer">
           <span class="brand-line">OBARA 知识库问答平台</span>
-          <span class="version" id="build-version" data-date="26-10-26" data-build="2">当前版本 26-10-26-V2</span>
+          <span class="version" id="build-version" data-date="26-10-27" data-build="1">当前版本 26-10-27</span>
         </div>
       </aside>
 
@@ -205,6 +243,50 @@
                   </button>
                 </div>
                 <p class="chat-input-tip">回答基于本部门已入库文档生成，请结合引用来源核对</p>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- 对话历史页 -->
+        <section id="page-history" class="page">
+          <div class="page-header">
+            <div>
+              <h2>对话历史</h2>
+              <p class="page-subtitle">仅显示你本人的会话记录 · 当前部门：<span id="history-dept-name">—</span></p>
+            </div>
+            <div class="row-actions">
+              <button class="btn btn-ghost btn-sm" onclick="loadHistory()">
+                <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-3.5-7.1"/><path d="M21 3v6h-6"/></svg>
+                刷新
+              </button>
+              <button class="btn btn-danger btn-sm" onclick="deleteAllSessions()">清空全部</button>
+            </div>
+          </div>
+
+          <div class="history-layout">
+            <!-- 左：会话列表 -->
+            <aside class="history-list-pane">
+              <div class="history-search">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.6-3.6"/></svg>
+                <input id="history-keyword" type="search" placeholder="搜索会话标题..." oninput="onHistorySearch(this.value)" />
+              </div>
+              <div id="history-list" class="history-list">
+                <div class="empty-tip">加载中...</div>
+              </div>
+              <div class="history-list-foot">
+                <span id="history-count" class="history-count">—</span>
+              </div>
+            </aside>
+
+            <!-- 右：会话详情 -->
+            <div class="history-detail-pane">
+              <div id="history-detail" class="history-detail">
+                <div class="history-empty">
+                  <div class="history-empty-mark">💬</div>
+                  <p class="history-empty-title">选择左侧会话查看完整对话</p>
+                  <p class="history-empty-desc">这里只会展示你本人发起的问答记录，可随时删除不再需要的会话。</p>
+                </div>
               </div>
             </div>
           </div>
@@ -261,14 +343,45 @@
           </div>
         </section>
 
+        <!-- 内置智能体启停页（系统管理员） -->
+        <section id="page-builtin-agents" class="page">
+          <div class="page-header">
+            <div>
+              <h2>内置智能体启停</h2>
+              <p class="page-subtitle">按部门开启 / 禁用系统内置智能体，禁用后该部门成员在问答页看不到也无法使用它</p>
+            </div>
+          </div>
+          <div class="scope-note">
+            <span class="scope-note-icon">🛠</span>
+            <span>内置智能体由系统提供（如「快速问答」），每个部门独立启停；这里的管理结果对所有门户用户立即生效。</span>
+          </div>
+          <div class="card">
+            <div class="inline-form">
+              <label for="builtin-dept-select">管理部门</label>
+              <select id="builtin-dept-select" onchange="loadBuiltinAgents()"></select>
+              <button class="btn btn-ghost btn-sm" onclick="loadBuiltinAgents()">
+                <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-3.5-7.1"/><path d="M21 3v6h-6"/></svg>
+                刷新
+              </button>
+            </div>
+            <div id="builtin-agent-table" class="data-table">加载中...</div>
+          </div>
+        </section>
+
         <!-- 文档管理页 -->
         <section id="page-documents" class="page">
           <div class="page-header">
             <div>
               <h2>文档管理</h2>
-              <p class="page-subtitle">维护本部门知识库与文档</p>
+              <p class="page-subtitle">维护本部门知识库与文档（支持文件夹分类、批量移动与整文件夹上传）</p>
             </div>
-            <button id="btn-create-kb" class="btn btn-primary" onclick="showKbModal()">+ 新建知识库</button>
+            <div class="row-actions">
+              <button id="btn-upload-limits" class="btn btn-ghost btn-sm hidden" onclick="showUploadLimitModal()">
+                <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16M4 12h16M4 18h16"/><circle cx="9" cy="6" r="2" fill="currentColor" stroke="none"/><circle cx="15" cy="12" r="2" fill="currentColor" stroke="none"/><circle cx="8" cy="18" r="2" fill="currentColor" stroke="none"/></svg>
+                上传限制设置
+              </button>
+              <button id="btn-create-kb" class="btn btn-primary" onclick="showKbModal()">+ 新建知识库</button>
+            </div>
           </div>
           <div class="card">
             <h3 class="section-title">知识库列表</h3>
@@ -283,10 +396,93 @@
                   上传文档
                   <input type="file" id="doc-upload" multiple style="display:none" onchange="uploadDocuments(this)" />
                 </label>
+                <label class="btn btn-secondary btn-sm">
+                  <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
+                  上传文件夹
+                  <input type="file" id="folder-upload" webkitdirectory directory multiple style="display:none" onchange="uploadFolder(this)" />
+                </label>
+                <button class="btn btn-ghost btn-sm" onclick="showCreateFolderModal(currentFolderId())">+ 新建文件夹</button>
                 <button class="btn btn-ghost btn-sm" onclick="closeKbDetail()">返回</button>
               </div>
             </div>
-            <div id="doc-table" class="data-table">加载中...</div>
+            <p id="upload-limit-hint" class="form-hint"></p>
+            <div class="doc-layout">
+              <aside class="doc-folder-pane">
+                <div class="doc-folder-head">
+                  <span>文件夹</span>
+                  <button class="icon-btn" title="新建根文件夹" onclick="showCreateFolderModal('')">
+                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+                  </button>
+                </div>
+                <div id="folder-tree" class="folder-tree"></div>
+              </aside>
+              <div class="doc-main">
+                <div class="doc-toolbar">
+                  <span id="doc-scope-label" class="doc-scope">全部文档</span>
+                  <div class="row-actions">
+                    <span id="doc-selected-count" class="muted"></span>
+                    <button class="btn btn-ghost btn-sm" id="btn-move-docs" onclick="moveSelectedDocs()">移动到…</button>
+                  </div>
+                </div>
+                <div id="doc-table" class="data-table">加载中...</div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- 全员对话（系统管理员） -->
+        <section id="page-all-conversations" class="page">
+          <div class="page-header">
+            <div>
+              <h2>全员对话</h2>
+              <p class="page-subtitle">查看全体成员的问答会话，可按部门 / 成员检索，必要时删除违规会话</p>
+            </div>
+            <button class="btn btn-ghost btn-sm" onclick="loadConversations()">
+              <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-3.5-7.1"/><path d="M21 3v6h-6"/></svg>
+              刷新
+            </button>
+          </div>
+          <div class="scope-note">
+            <span class="scope-note-icon">🛡</span>
+            <span>会话内容由后端按成员隔离，此处仅系统管理员可见；删除会话与该成员自己在「对话历史」中的删除效果一致。</span>
+          </div>
+          <div class="card">
+            <div class="audit-toolbar">
+              <select id="conv-dept-select" onchange="loadConversations(1)"></select>
+              <input id="conv-keyword" type="search" placeholder="搜索会话标题 / 成员姓名 / 邮箱" oninput="onAuditSearch('conv')" />
+              <span id="conv-user-filter"></span>
+              <span id="conv-stats" class="audit-stats">—</span>
+            </div>
+            <div id="conv-table" class="data-table">加载中...</div>
+            <div id="conv-pager" class="pager"></div>
+          </div>
+        </section>
+
+        <!-- 文档上传记录（系统管理员） -->
+        <section id="page-upload-records" class="page">
+          <div class="page-header">
+            <div>
+              <h2>文档上传记录</h2>
+              <p class="page-subtitle">全平台文档上传台账：谁在哪个部门、哪个知识库、何时上传了什么</p>
+            </div>
+            <button class="btn btn-ghost btn-sm" onclick="loadUploadRecords()">
+              <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-3.5-7.1"/><path d="M21 3v6h-6"/></svg>
+              刷新
+            </button>
+          </div>
+          <div class="scope-note">
+            <span class="scope-note-icon">🧾</span>
+            <span>记录来自后端审计流水，含已删除文档（标记「已删除」）；对未删除文档可直接重解析或删除，操作会以该文档所属部门的权限执行。</span>
+          </div>
+          <div class="card">
+            <div class="audit-toolbar">
+              <select id="upload-dept-select" onchange="loadUploadRecords(1)"></select>
+              <input id="upload-keyword" type="search" placeholder="搜索文件名 / 上传人 / 知识库" oninput="onAuditSearch('upload')" />
+              <span id="upload-user-filter"></span>
+              <span id="upload-stats" class="audit-stats">—</span>
+            </div>
+            <div id="upload-table" class="data-table">加载中...</div>
+            <div id="upload-pager" class="pager"></div>
           </div>
         </section>
       </main>
@@ -304,7 +500,7 @@
       </div>
       <div id="modal-body" class="modal-body"></div>
       <div class="modal-footer">
-        <button class="btn btn-ghost" onclick="closeModal()">取消</button>
+        <button id="modal-cancel" class="btn btn-ghost" onclick="closeModal()">取消</button>
         <button id="modal-confirm" class="btn btn-primary">确认</button>
       </div>
     </div>

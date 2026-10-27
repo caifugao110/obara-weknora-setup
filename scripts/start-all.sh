@@ -6,6 +6,7 @@
 #   1. Ollama 本地向量模型服务（systemd）
 #   2. WeKnora 全部容器（docker compose，位于 /opt/obara/weknora）
 #   3. 门户服务（8081，优先用 systemd 的 obara-portal.service，否则后台直启）
+#   4. 80 端口登录守卫（obara-admin-gate.service，已安装时才启停；未安装则跳过）
 #
 # 用法：
 #   bash scripts/start-all.sh              # 启动全部服务（默认）
@@ -27,6 +28,12 @@ WEKNORA_URL="${WEKNORA_URL:-http://127.0.0.1:8080}"
 PORTAL_URL="http://127.0.0.1:${PORTAL_PORT}"
 PORTAL_PID_FILE="${PORTAL_PID_FILE:-/tmp/obara-portal.pid}"
 PORTAL_SERVICE="obara-portal.service"
+# 80 端口登录守卫（仅系统管理员可登录 WeKnora 原生后台，由 enable-admin-gate.sh 安装）
+GATE_SERVICE="obara-admin-gate.service"
+FRONTEND_INNER_PORT="${FRONTEND_INNER_PORT:-8088}"
+# 超管部门身份保障：默认职位“所有部门的管理员”的平台账号与 Postgres 容器名
+ADMIN_EMAIL="${ADMIN_EMAIL:-admin@obara.local}"
+PG_CONTAINER="${PG_CONTAINER:-WeKnora-postgres}"
 
 ACTION="${1:-start}"
 
@@ -58,6 +65,10 @@ wait_http() {
 
 has_portal_service() {
   systemctl cat "${PORTAL_SERVICE}" >/dev/null 2>&1
+}
+
+has_gate_service() {
+  systemctl cat "${GATE_SERVICE}" >/dev/null 2>&1
 }
 
 port_pid() {
@@ -100,6 +111,24 @@ start_containers() {
   fi
 }
 
+ensure_admin_departments() {
+  # 「admin 默认是所有部门的管理员」：每次启动兜一次，缺失 / 被降级的超管成员身份自动补齐
+  local script="${ROOT_DIR}/scripts/multi-tenant/ensure-admin-all-departments.sh"
+  [[ -f "${script}" ]] || { info "未找到保障脚本，跳过超管部门身份校验"; return 0; }
+  if ! docker ps --format '{{.Names}}' 2>/dev/null | grep -qx "${PG_CONTAINER}"; then
+    info "Postgres 容器 ${PG_CONTAINER} 不在本机，跳过超管部门身份校验"
+    return 0
+  fi
+  info "校验超管在所有部门的管理员身份"
+  local logf; logf="$(mktemp)"
+  if bash "${script}" --admin-email "${ADMIN_EMAIL}" >"${logf}" 2>&1; then
+    ok "平台管理员已是全部部门的管理员"
+  else
+    warn "补齐超管部门身份失败，详情：" ; cat "${logf}" >&2
+  fi
+  rm -f "${logf}"
+}
+
 start_portal() {
   info "启动门户（${PORTAL_PORT}）"
   if curl -fsS -m 3 "${PORTAL_URL}/" >/dev/null 2>&1; then
@@ -124,10 +153,25 @@ start_portal() {
   fi
 }
 
+start_gate() {
+  # 未安装守卫时 80 端口仍由 WeKnora 前端直出，无需处理
+  has_gate_service || { info "80 端口登录守卫未安装（sudo bash scripts/deploy/enable-admin-gate.sh 可启用）"; return 0; }
+  info "启动 80 端口登录守卫（${GATE_SERVICE}）"
+  # 守卫反代的是已被挪到内部端口的原生前端，先确认它起来了
+  if ! curl -fsS -m 3 "http://127.0.0.1:${FRONTEND_INNER_PORT}/" >/dev/null 2>&1; then
+    warn "内部前端 ${FRONTEND_INNER_PORT} 未就绪，守卫启动后 80 端口会返回 502"
+  fi
+  as_root systemctl start "${GATE_SERVICE}"
+  wait_http "http://127.0.0.1/" 30 && ok "登录守卫已启动（80 → ${FRONTEND_INNER_PORT}）" \
+    || warn "守卫启动后 80 端口未响应，查看：journalctl -u ${GATE_SERVICE} -n 50"
+}
+
 do_start() {
   start_ollama
   start_containers
+  ensure_admin_departments
   start_portal
+  start_gate
   show_urls
 }
 
@@ -165,7 +209,17 @@ stop_containers() {
   fi
 }
 
+stop_gate() {
+  if has_gate_service && systemctl is-active --quiet "${GATE_SERVICE}"; then
+    as_root systemctl stop "${GATE_SERVICE}"
+    ok "80 端口登录守卫已停止"
+  else
+    ok "登录守卫未运行"
+  fi
+}
+
 do_stop() {
+  stop_gate
   stop_portal
   stop_containers
 }
@@ -192,6 +246,12 @@ do_status() {
   fi
   info "门户 8081：${portal_state}"
 
+  local gate_state="未安装（80 端口由 WeKnora 前端直出）"
+  if has_gate_service; then
+    gate_state="systemd $(systemctl is-active "${GATE_SERVICE}" 2>/dev/null || true) / 开机自启：$(systemctl is-enabled "${GATE_SERVICE}" 2>/dev/null || true)"
+  fi
+  info "80 端口守卫：${gate_state}"
+
   echo
   if curl -fsS -m 5 "${WEKNORA_URL}/health" >/dev/null 2>&1; then
     ok "WeKnora 后端健康：${WEKNORA_URL}/health"
@@ -210,8 +270,12 @@ show_urls() {
   local ip; ip="$(lan_ip)"
   echo
   echo "================ 访问地址 ================"
-  echo "  门户（问答/管理）： http://${ip:-<虚拟机IP>}:${PORTAL_PORT}"
-  echo "  WeKnora 原生后台： http://${ip:-<虚拟机IP>}"
+  echo "  门户（全体员工）： http://${ip:-<虚拟机IP>}:${PORTAL_PORT}"
+  if has_gate_service; then
+    echo "  原生后台（仅管理员登录）：http://${ip:-<虚拟机IP>}"
+  else
+    echo "  WeKnora 原生后台： http://${ip:-<虚拟机IP>}"
+  fi
   echo "  WeKnora 后端 API： http://${ip:-<虚拟机IP>}:8080"
   echo "=========================================="
 }

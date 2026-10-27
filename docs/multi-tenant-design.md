@@ -7,7 +7,7 @@
 | 目标 | 实现方式 |
 | --- | --- |
 | 十几个部门相互隔离 | 每个部门 = 一个 WeKnora 工作空间（Tenant），所有实体（知识库、文档、会话、智能体）均带 `TenantID`，数据查询自动按租户过滤 |
-| 部门管理员由超管指定 | 初始化只按 `contributor` 批量接入人员，**不设默认管理员**；每部门的 `Owner` 由超管在初始化后逐个指派 |
+| 部门管理员 | **平台超管 `admin` 默认就是所有部门的管理员**（建空间时自动 Owner，另有幂等脚本兜底）；各部门的文档管理员 `Owner` 由超管指派 |
 | 部门人员只能用本部门文档 | Tenant 级硬隔离：A 部门成员检索不到 B 部门任何文档，无需额外配置 |
 | 人员统一接入 | 邀请制：管理员发起邀请，成员通过邀请链接注册并加入部门工作空间 |
 | 统一管理入口 | 新门户（端口 8081）提供精美简洁的问答 + 管理界面 |
@@ -44,11 +44,17 @@
 
 | 角色 | 对应人群 | 权限 |
 | --- | --- | --- |
-| `owner` | 文档管理员（由超管手动指派） | 门户全部功能：人员、智能体、文档/知识库管理 + 问答 |
+| `owner` | 文档管理员（由超管手动指派）；平台超管 `admin` 在**所有部门**自动持有该角色 | 门户全部功能：人员、智能体、文档/知识库管理 + 问答 |
 | `contributor` | 普通部门成员 | 仅问答与切换所属部门，**看不到也调不动**人员/智能体/文档管理 |
 | 系统管理员（超管） | 平台运维人员 | 跨租户管理、创建部门工作空间、全局配置（代理层放行） |
 
 > 注：`viewer` 角色仅查看，`admin` 介于 owner 与 contributor 之间。本方案文档管理员用 `owner`，普通成员用 `contributor`；**初始化时不自动授予 `owner`**，需由超管指派。
+>
+> **提权保护**：把成员设为 `admin`（管理员）或 `owner`（文档管理员）的操作**仅系统管理员可执行**。
+> 部门文档管理员只能指派 / 调整为 `contributor`、`viewer`，且不能调整 admin / owner 本人的角色；
+> 前端不给出这些选项，代理层（`portal/server.py` 的 `check_role_elevation`）也会对
+> `POST/PUT /tenants/{id}/members`、`POST /tenants/{id}/invitations`、`POST /tenants/{id}/invite-links`
+> 中携带 `role=admin|owner` 的请求返回 403（超管放行）。
 
 **门户权限分级（前端 + 代理双层控制）**
 
@@ -72,7 +78,22 @@
 
 系统管理员（`is_system_admin` / `can_access_all_tenants`）在门户中的行为：
 
-- **管理部门**：顶栏「当前部门」下拉会列出全部部门（`/tenants/all` 补全），选中后所有管理请求带上该部门的 `X-Tenant-ID`，后端为超管在目标部门授予临时 `Admin`（**不是 Owner**：删除部门、轮换 API Key 仍需该部门真实 Owner 执行）。
+- **管理部门**：顶栏「当前部门」下拉会列出全部部门（`/tenants/all` 补全），选中后所有管理请求带上该部门的 `X-Tenant-ID`。
+- **默认就是所有部门的管理员**：这是本方案的一条硬约束——`admin@obara.local`（具备 `is_system_admin` / `can_access_all_tenants`）在每个部门空间的成员表里都持有最高的 `owner` 角色：
+
+  | 保障点 | 机制 |
+  | --- | --- |
+  | 新建部门 | WeKnora 后端在创建工作空间时为创建者写入 Owner 成员记录（`TenantHandler.CreateTenant` → `EnsureOwner`），门户「新建部门」因此天然满足 |
+  | 历史 / 被误改的部门 | `scripts/multi-tenant/ensure-admin-all-departments.sh` 逐部门补齐缺失的成员记录、把低于目标的角色提升为 `owner`，幂等可反复执行；`init-tenants.sh` 第 5c 步会自动调用它 |
+  | 门户代理层 | `portal/server.py` 对 `privileged`（超管）一律放行管理类写操作，即便某部门成员记录缺失也不受影响 |
+
+  核对 / 修复命令：
+
+  ```bash
+  sudo bash scripts/multi-tenant/ensure-admin-all-departments.sh --dry-run   # 只体检
+  sudo bash scripts/multi-tenant/ensure-admin-all-departments.sh             # 补齐并提升
+  sudo bash scripts/multi-tenant/ensure-admin-all-departments.sh --role admin  # 目标角色改为 admin
+  ```
 - **分配智能体**：智能体天然归属某一部门；跨部门使用通过「共享组织」实现，门户「智能体管理 → 分配到部门」弹窗完成三步：
 
   | 步骤 | 接口 | 说明 |
@@ -83,6 +104,19 @@
 
   内置智能体（快速问答等）不支持共享，列表中的「分配到部门」按钮会自动隐藏。
 - **使用智能体**：被分配部门的成员在问答页左侧即可看到带「共享」标签的智能体（由 `/organizations/{id}/shared-agents` 汇总）。
+
+### 2.5 系统管理员专属功能
+
+门户顶栏右上角显示登录人员**姓名 + 部门内角色徽标**，点击头像 / 下拉箭头打开账号菜单
+（修改登录邮箱、修改密码、退出登录）。
+
+| 功能 | 入口 | 实现 |
+| --- | --- | --- |
+| 修改登录邮箱 | 账号菜单「修改登录邮箱」（本人）；「人员管理」行内「改邮箱」（超管可改任何人） | WeKnora 未提供该 API，门户自有接口 `POST /api/v1/portal/users/email` 直连 Postgres 更新 `users.email`，并 `DELETE auth_tokens` 撤销该用户会话，强制用新邮箱重新登录 |
+| 随机重置成员密码 | 「人员管理」行内「重置密码」（仅超管，不能重置自己） | 前端生成合规随机密码 → `POST /system/admin/users/reset-password`（后端仅 SystemAdmin 可用），成功后把新密码展示给管理员复制，对方全部会话被撤销 |
+| 内置智能体按部门启停 | 侧边栏「内置智能体」（仅超管可见） | 状态持久化在 `data/builtin-agent-toggles.json`（`POST /api/v1/portal/builtin-agents` 写入）；代理层给 `GET /agents` 中被本部门停用的条目加 `disabled_in_tenant` 标记，问答页不显示，`POST /knowledge-chat/{session_id}` 带该 `agent_id` 时返回 403 |
+| 授予管理员 / 文档管理员 | 「人员管理」角色下拉、邀请成员（见 2.2 提权保护） | 非超管的下拉里不出现 Admin / Owner；代理层 `check_role_elevation` 二次拦截 |
+| 自身在所有部门的管理员身份 | `scripts/multi-tenant/ensure-admin-all-departments.sh`（也可由 `init-tenants.sh` 自动调用） | 逐部门 UPSERT `tenant_members`：缺失则补建为 `owner`，角色不足则提升；幂等 |
 
 > 代理层同步收紧：跨部门分配涉及的组织写操作（建/改/删组织、邀请部门、移除成员）也纳入 Owner 校验，加入类接口（`join` / `join-by-id` / `join-request`）不拦截。
 
@@ -141,10 +175,11 @@ WeKnora 生成邀请链接（含邀请令牌）
 
 执行 `scripts/multi-tenant/init-tenants.sh` 可一键完成：
 1. 创建 16 个部门工作空间
-2. 为每位成员生成邀请，**全部为 `contributor`**（不设默认管理员）
-3. 输出所有邀请链接汇总，便于管理员分发
+2. 为每位成员生成邀请，**全部为 `contributor`**（不为普通成员设默认管理员）
+3. 保证平台超管 `admin` 在**所有**部门都是管理员（第 5c 步，见 2.4 节）
+4. 输出所有邀请链接汇总，便于管理员分发
 
-初始化完成后，**各部门还没有 Owner**，需由超管逐个指派（见 6.3 节）。在此之前，该部门在门户中不会出现「人员 / 智能体 / 文档」管理入口。
+初始化完成后，**各部门除平台超管 `admin`（默认已是 owner，见 2.4 节）外还没有文档管理员 Owner**，需由超管逐个指派（见 6.3.1 节）。在此之前，该部门的普通成员在门户中不会出现「人员 / 智能体 / 文档」管理入口。
 
 ## 5. 新门户设计（端口 8081）
 
@@ -250,8 +285,9 @@ sudo ADMIN_PASSWORD='<管理员密码>' bash scripts/multi-tenant/init-tenants.s
 # 脚本会输出所有部门的邀请链接与账号汇总，保存后分发给各部门负责人
 ```
 
-**初始化不设默认管理员**：所有成员先以 `contributor` 加入本部门空间，`data/departments-personnel.json`
+**初始化不为普通成员设默认管理员**：所有成员先以 `contributor` 加入本部门空间，`data/departments-personnel.json`
 中的 `is_admin` / `admin_role` 配置已废弃（即使存在也会被脚本忽略）。
+唯一例外是平台超管 `admin`——脚本第 5c 步会把它在每个部门的身份补齐为 `owner`（见 2.4 节）。
 
 ### 6.3.1 手动指派各部门文档管理员（必做）
 
@@ -311,7 +347,8 @@ sudo bash scripts/deploy/install-autostart.sh
 | `portal/index.html` | 门户主页面 |
 | `portal/styles.css` | 门户样式 |
 | `portal/app.js` | 门户前端逻辑（问答 + 四大管理模块；含 Owner 角色权限控制） |
-| `portal/server.py` | 门户 HTTP 服务 + API 反向代理（端口 8081）；管理类写操作 Owner 二次鉴权 |
+| `portal/server.py` | 门户 HTTP 服务 + API 反向代理（端口 8081）；管理类写操作 Owner 二次鉴权、提权保护、内置智能体停用拦截、门户自有接口（邮箱变更 / 内置智能体启停） |
+| `data/builtin-agent-toggles.json` | 内置智能体在各工作空间内的启停状态（由门户维护，缺省即启用） |
 | `portal/start.sh` | 门户启动脚本 |
 | `scripts/start-all.sh` | 一键启动/停止/重启/查看全部服务（Ollama + WeKnora + 门户） |
 | `scripts/deploy/install-autostart.sh` | 安装/卸载门户（8081）systemd 开机自启 |

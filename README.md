@@ -455,10 +455,11 @@ curl -s -X POST http://127.0.0.1:7997/rerank -H 'Content-Type: application/json'
 
 | 服务 | 管理方式 | 开机自启 | 端口 |
 | --- | --- | --- | --- |
-| WeKnora 五容器 | docker compose | ✅ Docker 服务 enabled + 容器重启策略 | 80 / 8080 |
+| WeKnora 五容器 | docker compose | ✅ Docker 服务 enabled + 容器重启策略 | 8088（前端，内部）/ 8080（后端 API） |
 | Rerank 独立容器 `weknora-rerank` | `docker run`（非 compose） | ✅ `restart: unless-stopped` | 7997 |
 | Ollama | systemd `ollama.service` | ✅ enabled | 11434 |
 | 门户 | systemd `obara-portal.service` | ✅ enabled | 8081 |
+| 80 端口登录守卫 | systemd `obara-admin-gate.service` | ✅ enabled | 80 → 8088（见 §5.2） |
 
 ```bash
 # 一键启动全部服务：Ollama → WeKnora 容器（含 Rerank）→ 8081 门户
@@ -482,6 +483,65 @@ journalctl -u obara-portal -f
 > - `start-all.sh stop` 会停止门户与 WeKnora 容器（Ollama 保持运行）；此时重启虚机后容器不会自动回来，需再执行 `bash scripts/start-all.sh`。
 > - 若启用 `ufw` 或安全组，需放行 `8081`（门户）、`8080`（后端 API）、`80`（WeKnora 原生后台）。
 > - Rerank 容器重启后需约 1～2 分钟加载模型，期间问答可用，重排能力稍后恢复。
+
+### 5.2 端口分工与 80 端口登录守卫
+
+| 端口 | 用途 | 使用对象 |
+| --- | --- | --- |
+| `80` | WeKnora 原生后台（知识库 / 模型 / 智能体的全量管理） | **仅超级管理员 `admin@obara.local`**，其余账号登录返回 403 |
+| `8081` | OBARA 门户（智能问答、对话历史、部门内管理） | 全体员工 |
+
+实现方式：WeKnora 原生前端容器改为监听内部端口 `8088`（`.env` 的 `FRONTEND_PORT`），80 端口由 `obara-admin-gate.service`（`portal/admin_gate.py`）接管并反向代理。网关在登录接口按邮箱白名单拦截，并对携带 Bearer 令牌的 API 请求校验令牌归属邮箱，非白名单一律拒绝，避免拿到令牌后绕过登录页直调原生后台 API。
+
+```bash
+# 启用守卫（幂等；会把前端挪到 8088 并安装 systemd 服务）
+sudo bash scripts/deploy/enable-admin-gate.sh
+
+# 自定义白名单（逗号分隔）
+sudo GATE_ADMIN_EMAILS='admin@obara.local,ops@obara.local' bash scripts/deploy/enable-admin-gate.sh
+
+# 撤除守卫，恢复原生后台直出 80 端口
+sudo bash scripts/deploy/enable-admin-gate.sh --disable
+
+# 状态与日志
+systemctl status obara-admin-gate
+journalctl -u obara-admin-gate -f
+```
+
+> 注意：`start-all.sh` 会一并启停该守卫；未安装时自动跳过，80 端口仍由 WeKnora 前端直出。
+> 排障时可用 `GATE_ENFORCE=false` 临时把网关降级为透明代理。
+
+### 5.3 对话历史（8081 门户）
+
+门户侧边栏「对话历史」展示**当前登录人本人**的会话记录（`GET /api/v1/sessions` 由后端按 `user_id` 过滤，天然不含他人数据）：
+
+- 左侧会话列表支持按标题搜索，显示更新时间与所用智能体；
+- 右侧展示该会话的完整问答（含引用来源与消息时间）；
+- 单条会话可删除，「清空全部」走批量删除接口，删除不可恢复。
+
+会话按部门隔离：切换顶栏「当前部门」后列表会重新加载。
+
+### 5.4 平台管理：全员对话 / 文档上传记录（仅超级管理员）
+
+超级管理员在侧边栏「平台管理」下可跨部门查看并管理这两类记录，其余角色看不到该入口：
+
+| 页面 | 内容 | 管理能力 |
+| --- | --- | --- |
+| 全员对话 | 全体成员在各部门的会话：会话标题、成员、部门、消息数、更新时间 | 查看任一会话的完整问答，**删除违规会话**（软删除，语义同本人删除） |
+| 文档上传记录 | 全平台文档上传台账：文件名、上传人及其部门角色、部门、知识库、大小、解析状态、上传时间 | **重解析 / 删除**成员上传的文档（以该文档所属部门的权限执行） |
+
+两页均支持按部门筛选、关键词检索、「只看该成员」下钻与分页，顶部给出「记录数 / 人数 / 占用空间」统计。
+
+数据来源（后端为什么这么做）：WeKnora 原生 `/sessions` 只返回当前用户自己的会话，文档上传人也只存在于 `audit_logs`（对外仅有按部门的 `/tenants/{id}/audit-log`），因此门户以只读 SQL 查询同一 Postgres，与「修改登录邮箱」走同一条通路：
+
+```
+GET  /api/v1/portal/admin/conversations                 # 全员会话（可分页、可按部门 / 成员 / 关键词过滤）
+GET  /api/v1/portal/admin/conversations/{id}/messages   # 任一成员会话的完整对话
+POST /api/v1/portal/admin/conversations                 # 删除会话：{action:"delete", session_id}
+GET  /api/v1/portal/admin/uploads                       # 文档上传记录
+```
+
+接口一律以 `/auth/me` 的 `is_system_admin` / `can_access_all_tenants` 校验，普通成员调用返回 403。
 
 ---
 
