@@ -587,7 +587,11 @@ input, select, textarea { font-family: inherit; }
 .data-table tbody tr { transition: background .15s; }
 .data-table tbody tr:hover td { background: var(--surface-soft); }
 .data-table .empty-tip { padding: 36px; text-align: center; color: var(--text-muted); }
-.row-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.row-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+/* td 上的 row-actions 必须保持 table-cell：改成 flex 会让空单元格（无按钮的行）
+   高度塌陷、底边框脱离行底，渲染成一条悬空的横线 */
+td.row-actions { display: table-cell; vertical-align: middle; }
+td.row-actions > .btn + .btn { margin-left: 8px; }
 
 .badge {
   display: inline-block;
@@ -964,6 +968,69 @@ input, select, textarea { font-family: inherit; }
 /* ============================================================
  * 弹窗
  * ============================================================ */
+/* ---------- 居中提示弹窗（注册/登录被拒 → 倒计时跳转登录页） ----------
+   与 80 端口守卫注入的弹窗（portal/admin_gate.py 的 REDIRECT_CSS）保持同一风格 */
+.obara-rd-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 3000;
+  padding: 24px;
+  background: rgba(15, 23, 42, .55);
+  backdrop-filter: blur(3px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: fadeIn .18s ease-out;
+}
+.obara-rd-card {
+  width: 100%;
+  max-width: 440px;
+  padding: 32px 30px 26px;
+  border-radius: 18px;
+  background: var(--surface);
+  text-align: center;
+  box-shadow: 0 24px 60px rgba(15, 23, 42, .28);
+  animation: modalIn .22s cubic-bezier(.2, .8, .2, 1);
+}
+.obara-rd-icon {
+  width: 56px;
+  height: 56px;
+  margin: 0 auto 14px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  background: linear-gradient(135deg, var(--primary), var(--primary-700));
+  box-shadow: 0 8px 20px rgba(37, 99, 235, .28);
+}
+.obara-rd-title { margin: 0 0 10px; font-size: 19px; color: var(--text); }
+.obara-rd-msg { margin: 0 0 16px; font-size: 14px; line-height: 1.7; color: var(--text-muted); word-break: break-word; }
+.obara-rd-count { font-size: 13px; color: var(--text-muted); }
+.obara-rd-count span { color: var(--primary); font-weight: 700; }
+.obara-rd-bar { margin: 12px 0 18px; height: 4px; border-radius: 999px; background: var(--border); overflow: hidden; }
+.obara-rd-bar i {
+  display: block;
+  height: 100%;
+  width: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--primary), var(--primary-700));
+  transition: width 1s linear;
+}
+.obara-rd-btn {
+  display: block;
+  padding: 11px 16px;
+  border-radius: 10px;
+  background: var(--primary);
+  color: #fff;
+  text-decoration: none;
+  font-size: 14px;
+  font-weight: 600;
+  transition: background .15s;
+}
+.obara-rd-btn:hover { background: var(--primary-700); }
+.obara-rd-foot { margin: 14px 0 0; font-size: 12px; color: var(--text-muted); opacity: .8; }
+
 .modal-overlay {
   position: fixed;
   inset: 0;

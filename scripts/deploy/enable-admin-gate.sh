@@ -7,6 +7,7 @@
 #   2. 安装并启动 obara-admin-gate.service（Python 网关占用 80 端口，反代 8088）
 #   3. 网关拦截登录：仅 GATE_ADMIN_EMAILS（默认 admin@obara.local）可登录，
 #      其余账号与令牌一律 403，普通用户走 8081 门户
+#   4. 网关关闭注册：注册 / 找回密码类接口与页面（/register 等）一律 403，任何人不能注册
 #
 # 用法：
 #   sudo bash scripts/deploy/enable-admin-gate.sh                 # 启用守卫（幂等）
@@ -18,6 +19,8 @@
 #   WEKNORA_DIR        WeKnora compose 目录（默认 /opt/obara/weknora）
 #   FRONTEND_INNER_PORT 原生前端内部端口（默认 8088）
 #   GATE_ADMIN_EMAILS 允许登录 80 端口的邮箱白名单（默认 admin@obara.local）
+#   GATE_PORTAL_URL   非管理员登录 / 进注册页被拦截后跳转的门户地址
+#                     （默认 http://<请求 Host>:8081/，可用 GATE_PORTAL_PORT 改端口）
 #
 set -euo pipefail
 
@@ -128,6 +131,12 @@ RUN_USER="${SUDO_USER:-}"
 if [[ -z "${RUN_USER}" || "${RUN_USER}" == "root" ]]; then
   RUN_USER="$(stat -c '%U' "${ROOT_DIR}")"
 fi
+# 拦截后跳转的门户地址：默认用本机内网 IP，避免依赖浏览器请求里的 Host
+if [[ -z "${GATE_PORTAL_URL:-}" ]]; then
+  LAN_IP_NOW="$(hostname -I 2>/dev/null | awk '{print $1}')"
+  [[ -n "${LAN_IP_NOW}" ]] && GATE_PORTAL_URL="http://${LAN_IP_NOW}:8081/"
+fi
+echo "    拦截后跳转：${GATE_PORTAL_URL:-（按请求 Host 推导 :8081）}"
 cat > "${UNIT_FILE}" <<EOF
 [Unit]
 Description=OBARA Admin Gate (port 80 -> ${INNER_PORT}, admin-only login)
@@ -143,6 +152,7 @@ Environment=PYTHONUNBUFFERED=1
 Environment=GATE_PORT=80
 Environment=GATE_UPSTREAM=http://127.0.0.1:${INNER_PORT}
 Environment=GATE_ADMIN_EMAILS=${GATE_ADMIN_EMAILS}
+Environment=GATE_PORTAL_URL=${GATE_PORTAL_URL:-}
 # 绑定 80 特权端口：只授予 CAP_NET_BIND_SERVICE，不整体以 root 运行
 CapabilityBoundingSet=CAP_NET_BIND_SERVICE
 AmbientCapabilities=CAP_NET_BIND_SERVICE
@@ -177,6 +187,24 @@ else
 fi
 cat /tmp/obara-gate-check.json 2>/dev/null | head -c 300; echo
 rm -f /tmp/obara-gate-check.json
+
+# 任何人都不能注册：注册接口与注册页面都必须被拒
+CODE_REGISTER="$(curl -s -o /dev/null -w '%{http_code}' -X POST \
+  http://127.0.0.1/api/v1/auth/register \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"nobody@obara.local","password":"not-a-real-password"}' || true)"
+if [[ "${CODE_REGISTER}" == "403" ]]; then
+  ok "自助注册接口已关闭（HTTP 403）"
+else
+  warn "自助注册未被拦截（HTTP ${CODE_REGISTER}），请检查：journalctl -u ${SERVICE_NAME} -n 50"
+fi
+
+CODE_REGISTER_PAGE="$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1/register || true)"
+if [[ "${CODE_REGISTER_PAGE}" == "403" ]]; then
+  ok "注册页面已关闭（HTTP 403，返回提示页）"
+else
+  warn "注册页面未被拦截（HTTP ${CODE_REGISTER_PAGE}）"
+fi
 
 LAN_IP="$(hostname -I 2>/dev/null | awk '{print $1}')"
 echo

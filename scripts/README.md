@@ -25,6 +25,7 @@ scripts/
 | `deploy/configure-deepseek.sh` | 阶段四：注册 DeepSeek 对话模型与本地 Ollama 向量模型并验证连通性 | `sudo DEEPSEEK_API_KEY='sk-xxxxx' bash scripts/deploy/configure-deepseek.sh` |
 | `deploy/install-rerank.sh` | 阶段五：部署本地 Rerank 服务容器并注册到 WeKnora | `sudo bash scripts/deploy/install-rerank.sh` |
 | `deploy/install-autostart.sh` | 安装门户（8081）systemd 开机自启，并确认 Docker、Ollama 自启 | `sudo bash scripts/deploy/install-autostart.sh` |
+| `deploy/enable-admin-gate.sh` | 80 端口登录守卫：仅管理员可登录原生后台 + 关闭注册，被拦截时弹提示并跳 8081 | `sudo bash scripts/deploy/enable-admin-gate.sh` |
 
 ### 通用前提
 
@@ -202,6 +203,54 @@ sudo systemctl restart obara-portal
 > 门户直接运行仓库内的 `portal/server.py`，**移动仓库目录后需重新执行安装脚本**。
 > 虚拟机重启后：Docker 按 `restart: unless-stopped` 拉起 WeKnora 容器（含 `weknora-rerank`），Ollama 与门户由 systemd 自启，无需手工操作即可访问 8081。
 
+### enable-admin-gate.sh
+
+用途：把 WeKnora 原生前端从对外 80 端口挪到内部端口 `8088`，由 `obara-admin-gate.service`（`portal/admin_gate.py`）接管 80 端口，**只允许管理员登录、任何人不能注册**。对应主文档《README》5.2 节与《多租户方案》5.2.1 节。
+
+```bash
+sudo bash scripts/deploy/enable-admin-gate.sh                 # 启用守卫（幂等）
+sudo GATE_ADMIN_EMAILS='admin@obara.local' \
+     GATE_PORTAL_URL='http://192.168.227.133:8081/' \
+     bash scripts/deploy/enable-admin-gate.sh                 # 自定义白名单与跳转地址
+sudo bash scripts/deploy/enable-admin-gate.sh --disable       # 撤除守卫，恢复 80 直出
+```
+
+主要步骤：
+
+1. 把 `.env` 的 `FRONTEND_PORT` 改为 `8088`，并把 compose 里前端改为只监听 `127.0.0.1:8088`（防绕过）
+2. 重建前端容器，等待 `http://127.0.0.1:8088/` 就绪
+3. 写入 `/etc/systemd/system/obara-admin-gate.service`（`GATE_PORT=80` → `GATE_UPSTREAM=http://127.0.0.1:8088`，以 `CAP_NET_BIND_SERVICE` 绑定 80）
+4. 80 端口健康检查
+5. 守卫自检：非白名单登录 403、注册接口 403、注册页面 403
+
+拦截规则（`portal/admin_gate.py`）：
+
+| 场景 | 处理 |
+| --- | --- |
+| `POST /api/v1/auth/login` 非白名单邮箱 | 403（不落到后端） |
+| 携带 Bearer 令牌的 `/api/*`，令牌归属邮箱非白名单 | 403（防止绕过登录页直调 API） |
+| 注册 / 找回密码 / 重置密码接口（任意方法） | 403 |
+| `/register`、`/signup` 等注册类页面 | 403 + 提示页：页面正中弹卡片（原因 + 倒计时进度条 + 「立即前往 8081 门户」） |
+| 页面内登录 / 注册被拒、SPA 跳到注册页 | 注入脚本接管 `fetch` / `XHR` 与路由，另有 `MutationObserver` 兜底；**只弹一个居中卡片**，原生后台自己那条顶部提示条（TDesign `t-message`）会被隐藏，倒计时结束跳转 8081 |
+
+可用环境变量：`WEKNORA_DIR`、`FRONTEND_INNER_PORT`、`GATE_ADMIN_EMAILS`、`GATE_PORTAL_URL`、`GATE_PORTAL_PORT`、`GATE_REDIRECT_DELAY_MS`（提示停留毫秒数，默认 3000）；排障时给服务加 `Environment=GATE_ENFORCE=false` 可临时降级为透明代理。
+
+> `GATE_PORTAL_URL` 未显式给时，脚本按 `hostname -I` 取内网 IP 自动生成（如 `http://192.168.227.133:8081/`）并写进 unit，不依赖浏览器请求里的 Host。
+
+常用命令：
+
+```bash
+systemctl status obara-admin-gate
+journalctl -u obara-admin-gate -f          # 拦截记录：[DENY] / [DENY-PAGE]
+
+# 手工验证
+curl -o /dev/null -w '%{http_code}\n' -X POST http://127.0.0.1/api/v1/auth/login \
+  -H 'Content-Type: application/json' -d '{"email":"nobody@obara.local","password":"x"}'   # 403
+curl -o /dev/null -w '%{http_code}\n' http://127.0.0.1/register                            # 403
+```
+
+> 与批量开户不冲突：`scripts/multi-tenant/init-tenants.sh` 直连后端 `8080` 调 `/auth/register`，不走 80 网关与 8081 门户。
+
 ## 二、非部署脚本（`kb/`）
 
 知识库初始化、验收与数据转换，对应主文档《README》阶段六。这些脚本不改变部署环境，只在已部署完成的 WeKnora 上操作数据。
@@ -301,6 +350,9 @@ python3 scripts/portal/build-version.py --check   # 查看当前版本号
 | `install-rerank.sh` 报"登录失败" | 用 `--admin-password` 传入后台实际密码；或先 `--no-register` 完成部署，再到后台手工注册 |
 | 8081 打不开 / 门户未启动 | 先看 `systemctl status obara-portal`；未安装自启时执行 `bash scripts/start-all.sh`，或安装 `sudo bash scripts/deploy/install-autostart.sh` |
 | 8081 端口被占用 | `sudo ss -ltnp \| grep ':8081'` 定位进程；可执行 `bash scripts/start-all.sh stop` 停止门户后再安装自启 |
+| 80 端口打不开 / 守卫未生效 | `systemctl status obara-admin-gate` + `journalctl -u obara-admin-gate -n 50`；确认前端已监听 `127.0.0.1:8088`（`curl -I http://127.0.0.1:8088/`） |
+| 管理员也登录不了 80 后台 | 核对 `GATE_ADMIN_EMAILS` 是否包含该邮箱（小写）；临时排障可给服务加 `Environment=GATE_ENFORCE=false` 后重启 |
+| 被拦截后没跳转到 8081 | ① 先硬刷新一次（Ctrl+Shift+R）：网关对 HTML 已下发 `Cache-Control: no-store`，旧页面不会再用；② 跳转地址默认取部署时的内网 IP（`GATE_PORTAL_URL`），如需改就 `sudo systemctl edit obara-admin-gate` 覆盖该变量 |
 | 移动仓库目录后门户启动失败 | 重新执行 `sudo bash scripts/deploy/install-autostart.sh` 更新 systemd 中的工作目录与脚本路径 |
 | 执行过 `start-all.sh stop` 后重启虚机，容器没回来 | 容器为 `unless-stopped` 策略，手动停止后不会自动启动；执行一次 `bash scripts/start-all.sh` |
 

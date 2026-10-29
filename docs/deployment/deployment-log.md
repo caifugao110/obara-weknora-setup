@@ -130,7 +130,7 @@
 | `JWT_SECRET` / `SYSTEM_AES_KEY` / `SYSTEM_SIGNING_KEY` | 随机 | 同上 |
 | `STORAGE_TYPE` | `local` | 文件存储本地卷 `data-files` |
 | `MAX_FILE_SIZE_MB` | `100` | 放宽上传上限（默认 50） |
-| `DISABLE_REGISTRATION` | `false` | 一期试点允许注册 |
+| `DISABLE_REGISTRATION` | `false` | 保持 false：`init-tenants.sh` 直连 8080 用它批量开户；对外注册由 80 网关与 8081 门户两层拦截 |
 
 > ⚠️ **必须备份 `.env`**：`SYSTEM_AES_KEY` 丢失将导致库内已加密的模型 API Key 等字段永久无法解密。
 
@@ -809,6 +809,38 @@ sudo bash scripts/deploy/install-autostart.sh --uninstall   # 卸载自启
 > - 门户直接运行仓库内 `portal/server.py`，**移动仓库目录后需重新执行安装脚本**。
 > - 执行 `start-all.sh stop` 后关机，容器因 `unless-stopped` 不会自动恢复，开机后需执行一次 `bash scripts/start-all.sh`。
 > - 当前 `ufw` 未启用；若后续启用防火墙或安全组，需放行 `8081`、`8080`、`80`。
+
+### 7.4 80 端口登录守卫与注册策略
+
+**背景**：原生后台（80 端口）默认对全员开放登录与注册，任何员工都能操作知识库 / 模型 / 智能体等高权限功能；按 OBARA 约定，80 端口只给系统管理员，员工统一走 8081 门户。
+
+**落地**：`portal/admin_gate.py` + `scripts/deploy/enable-admin-gate.sh`
+
+| 项 | 值 |
+| --- | --- |
+| 服务名 | `obara-admin-gate.service` |
+| 监听 / 上游 | `0.0.0.0:80` → `http://127.0.0.1:8088`（原生前端已改为只监听回环） |
+| 登录白名单 | `GATE_ADMIN_EMAILS=admin@obara.local` |
+| 拦截后跳转 | `GATE_PORTAL_URL=http://192.168.227.133:8081/`（部署时按内网 IP 写入 unit；未设置才回退 `http://<请求 Host>:8081/`） |
+| 页面缓存 | 网关 HTML `no-store, no-cache, must-revalidate`；门户静态资源 `no-cache` |
+
+规则与实现：
+
+1. **只允许管理员登录**：`POST /api/v1/auth/login` 按邮箱白名单判定，非白名单 403；带 Bearer 令牌的 `/api/*` 复核令牌归属邮箱，非白名单 403（防绕过登录页直调 API）。
+2. **任何人都不能注册**：`/api/v1/auth/register*`、`forgot-password`、`reset-password`、`verify`、`activate` 任意方法 403；`/register`、`/signup` 等页面返回提示页；门户 8081 侧 `POST /api/v1/auth/register` 同样 403（`portal/server.py` 的 `check_register()`）。
+3. **只弹一个居中弹窗并倒计时跳转 8081**：原生后台自己那条顶部提示条（TDesign `t-message`）在触发拦截时被 `body.obara-blocked` 规则隐藏，只保留页面正中的统一卡片（警示图标 + 原因 + 倒计时进度条 + 「立即前往 8081 门户」按钮），倒计时结束自动跳转；地址栏直接访问注册页走提示页，同样的居中卡片。停留时长 `GATE_REDIRECT_DELAY_MS`（默认 3000 毫秒）。
+4. **两层触发 + 不缓存**：注入脚本同时接管 `fetch` / `XHR` / SPA 路由，并用 `MutationObserver` 兜底（只要页面出现拦截文案即触发）；网关 HTML 与门户静态资源均禁用缓存，避免旧页面让守卫脚本失效。
+
+启用与自检：
+
+```bash
+sudo bash scripts/deploy/enable-admin-gate.sh
+# 脚本自检输出：非白名单登录 403 / 注册接口 403 / 注册页面 403
+systemctl is-active obara-admin-gate     # active
+journalctl -u obara-admin-gate -f        # [DENY] / [DENY-PAGE] 拦截记录
+```
+
+> 批量开户不受影响：`init-tenants.sh` 直连 `8080` 调 `/auth/register` 建账号，不走 80 网关与 8081 门户，因此 `.env` 的 `DISABLE_REGISTRATION` 仍保持 `false`。
 
 ---
 

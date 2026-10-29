@@ -51,10 +51,25 @@
 > 注：`viewer` 角色仅查看，`admin` 介于 owner 与 contributor 之间。本方案文档管理员用 `owner`，普通成员用 `contributor`；**初始化时不自动授予 `owner`**，需由超管指派。
 >
 > **提权保护**：把成员设为 `admin`（管理员）或 `owner`（文档管理员）的操作**仅系统管理员可执行**。
-> 部门文档管理员只能指派 / 调整为 `contributor`、`viewer`，且不能调整 admin / owner 本人的角色；
-> 前端不给出这些选项，代理层（`portal/server.py` 的 `check_role_elevation`）也会对
+> 部门文档管理员只能指派 / 调整为 `contributor`、`viewer`；前端不给出这些选项，代理层
+> （`portal/server.py` 的 `check_role_elevation`）也会对
 > `POST/PUT /tenants/{id}/members`、`POST /tenants/{id}/invitations`、`POST /tenants/{id}/invite-links`
 > 中携带 `role=admin|owner` 的请求返回 403（超管放行）。
+>
+> **受保护的系统管理员账号**：`admin@obara.local`（可用 `PORTAL_ADMIN_EMAILS` 配置多个）的
+> **角色、登录邮箱、密码任何人都不可更改，包括它自己**——前端不给按钮，代理层对
+> `PUT/DELETE /tenants/{id}/members/{user_id}` 与 `POST /system/admin/users/reset-password`、
+> 门户 `POST /portal/users/email` 一律返回 403。
+>
+> **登录邮箱不允许自助修改**：任何人（含系统管理员）都不能改自己的登录邮箱，右上角入口已移除；
+> 仅系统管理员可在「人员管理」行内改他人邮箱，且须先通过上面两条约束（不能改受保护 admin 账号）。
+>
+> **只能管理比自己权限低的人**：角色等级 `owner > admin > contributor > viewer`，
+> 部门文档管理员（`owner`）可调整 / 移除 `admin`、`contributor`、`viewer`，
+> **不能动同级或更高的成员**——另一位 `owner`（含在所有部门都是 `owner` 的超管）不受其管理。
+> 前端 `portal/app.js` 的 `canManageMember()` 隐藏对应按钮并在改角色时二次校验；
+> 代理层 `check_role_target()` 对 `PUT/DELETE /tenants/{id}/members/{user_id}` 拉取成员角色表
+> （60s 缓存，写操作后失效）比对等级，越级返回 403（系统管理员放行）。
 
 **门户权限分级（前端 + 代理双层控制）**
 
@@ -108,14 +123,14 @@
 ### 2.5 系统管理员专属功能
 
 门户顶栏右上角显示登录人员**姓名 + 部门内角色徽标**，点击头像 / 下拉箭头打开账号菜单
-（修改登录邮箱、修改密码、退出登录）。
+（修改密码、退出登录；「修改登录邮箱」入口已移除，任何人都不能自助修改自己的登录邮箱）。
 
 | 功能 | 入口 | 实现 |
 | --- | --- | --- |
-| 修改登录邮箱 | 账号菜单「修改登录邮箱」（本人）；「人员管理」行内「改邮箱」（超管可改任何人） | WeKnora 未提供该 API，门户自有接口 `POST /api/v1/portal/users/email` 直连 Postgres 更新 `users.email`，并 `DELETE auth_tokens` 撤销该用户会话，强制用新邮箱重新登录 |
-| 随机重置成员密码 | 「人员管理」行内「重置密码」（仅超管，不能重置自己） | 前端生成合规随机密码 → `POST /system/admin/users/reset-password`（后端仅 SystemAdmin 可用），成功后把新密码展示给管理员复制，对方全部会话被撤销 |
+| 修改登录邮箱 | 「人员管理」行内「改邮箱」（超管可改他人；本人不可自助修改，右上角入口已移除） | WeKnora 未提供该 API，门户自有接口 `POST /api/v1/portal/users/email` 直连 Postgres 更新 `users.email`，并 `DELETE auth_tokens` 撤销该用户会话，强制用新邮箱重新登录 |
+| 随机重置成员密码 | 「人员管理」行内「重置密码」（仅超管，不能重置自己；受保护的 `admin` 账号任何人都不可重置） | 前端生成合规随机密码 → `POST /system/admin/users/reset-password`（后端仅 SystemAdmin 可用），成功后把新密码展示给管理员复制，对方全部会话被撤销；代理层 `check_reset_password()` 对受保护账号返回 403 |
 | 内置智能体按部门启停 | 侧边栏「内置智能体」（仅超管可见） | 状态持久化在 `data/builtin-agent-toggles.json`（`POST /api/v1/portal/builtin-agents` 写入）；代理层给 `GET /agents` 中被本部门停用的条目加 `disabled_in_tenant` 标记，问答页不显示，`POST /knowledge-chat/{session_id}` 带该 `agent_id` 时返回 403 |
-| 授予管理员 / 文档管理员 | 「人员管理」角色下拉、邀请成员（见 2.2 提权保护） | 非超管的下拉里不出现 Admin / Owner；代理层 `check_role_elevation` 二次拦截 |
+| 授予管理员 / 文档管理员 | 「人员管理」角色下拉、邀请成员（见 2.2 提权保护与「只能管理比自己权限低的人」） | 非超管的下拉里不出现 Admin / Owner；代理层 `check_role_elevation` 二次拦截，`check_role_target` 再拦同级 / 更高权限成员与受保护 admin 账号 |
 | 自身在所有部门的管理员身份 | `scripts/multi-tenant/ensure-admin-all-departments.sh`（也可由 `init-tenants.sh` 自动调用） | 逐部门 UPSERT `tenant_members`：缺失则补建为 `owner`，角色不足则提升；幂等 |
 
 > 代理层同步收紧：跨部门分配涉及的组织写操作（建/改/删组织、邀请部门、移除成员）也纳入 Owner 校验，加入类接口（`join` / `join-by-id` / `join-request`）不拦截。
@@ -211,6 +226,25 @@ WeKnora 后端 API（端口 8080）
 ```
 
 **为什么用代理而非直连**：WeKnora 后端默认未开启跨域（CORS），门户通过同源代理转发 API 请求，避免浏览器 CORS 拦截；同时门户仅暴露必要 API，可在代理层做二次鉴权与审计。
+
+### 5.2.1 登录与注册策略（80 端口仅管理员 / 禁止注册）
+
+| 入口 | 谁能登录 | 能否注册 |
+| --- | --- | --- |
+| 80 端口（WeKnora 原生后台） | **仅白名单管理员**（`GATE_ADMIN_EMAILS`，默认 `admin@obara.local`）；非白名单账号在登录接口即 403，已登录令牌也会按归属邮箱复核 | **不能**：注册 / 找回密码 / 重置密码接口，以及 `/register`、`/signup` 等页面一律 403（返回提示页），任何人都无法注册 |
+| 8081 端口（OBARA 门户） | 全体员工（凭管理员开通的账号） | **不能自助注册**：`POST /api/v1/auth/register` 一律 403；账号经管理员邀请链接开通（`register-by-invite`，可用 `PORTAL_ALLOW_INVITE_REGISTER=false` 一并关闭） |
+
+被拦截后的表现：**只弹一个居中弹窗**。页面正中弹出统一的 OBARA 风格卡片（警示图标 + 原因 + 倒计时进度条 + 「立即前往 8081 门户」按钮），倒计时结束自动跳转；原生后台自己那条顶部提示条（TDesign `t-message`）会被隐藏，不出现「两个弹窗」。注册被拒的「系统不开放自助注册…」同样只有这张居中卡片。
+- 地址栏直接访问注册页：返回提示页，含倒计时与「立即前往 8081 门户」链接。
+- 在原生后台里点登录 / 进注册页：守卫向返回的 HTML 注入脚本（`inject_guard`），接管 `fetch` / `XHR` 与 SPA 路由，403 时同样弹居中卡片并倒计时跳转；另有 `MutationObserver` 兜底——只要页面出现拦截文案（不看请求方式）就触发，同时把承载文案的原生提示条隐藏。
+- 跳转地址：部署脚本按虚拟机内网 IP 固定写入 `GATE_PORTAL_URL`（如 `http://192.168.227.133:8081/`），未设置时才回退为 `http://<请求 Host>:8081/`；可用 `GATE_PORTAL_PORT` 改端口、停留时长用 `GATE_REDIRECT_DELAY_MS`（默认 3000 毫秒）。
+- 页面不缓存：网关对 `text/html` 下发 `Cache-Control: no-store, no-cache, must-revalidate`，门户静态资源下发 `no-cache`，避免浏览器拿旧页面导致守卫脚本不生效（改版后首次访问建议 `Ctrl+Shift+R` 硬刷新）。
+
+实现位置：
+- 80 端口守卫 `portal/admin_gate.py`：`check_login`（邮箱白名单）/ `check_token`（令牌归属复核）/ `check_blocked_paths` + `check_blocked_page`（注册类接口与页面）/ `deny_page` + `inject_guard`（提示与跳转）。
+- 门户代理 `portal/server.py`：`check_register()` 在转发前拦截自助注册，返回体带 `error.redirect`，前端无注册入口，代理层为绕过前端的兜底。
+- 门户前端 `portal/app.js`：`api()` 见到 `error.redirect` 时先 `alert` 提示再跳转登录页。
+- 一键部署与自检：`scripts/deploy/enable-admin-gate.sh`（启用守卫时会验证登录拦截、注册接口 403、注册页面 403）。
 
 ### 5.3 页面结构
 
@@ -336,6 +370,10 @@ sudo bash scripts/deploy/install-autostart.sh
 3. 在「智能体管理」中创建问答智能体，绑定本部门知识库
 4. 在「人员管理」中邀请本部门其他成员
 5. 普通成员通过邀请链接加入后，即可在「问答」页面对本部门文档提问
+
+> 人员管理的边界（详见 2.2 节）：只能邀请 / 调整为 `contributor`、`viewer`（`admin`、`owner`
+> 需超管指派）；只能改动权限比自己低的成员（`admin` 及以下），另一位 `owner` 与超管账号
+> `admin@obara.local` 不可改动；不能重置他人密码、不能改他人登录邮箱，也不能改自己的登录邮箱。
 
 ## 7. 交付物清单
 

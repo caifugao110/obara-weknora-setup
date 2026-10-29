@@ -17,12 +17,19 @@ OBARA 知识问答平台 — 门户 HTTP 服务 + API 反向代理
 二次鉴权：
   门户会在代理层拦截部门管理类「写操作」（成员/邀请、智能体、知识库与文档），
   仅允许当前部门内的文档管理员（Owner）执行，防止绕过前端直接调 API；
-  其中把成员提权为「管理员 Admin / 文档管理员 Owner」仅系统管理员可执行。
+  其中把成员提权为「管理员 Admin / 文档管理员 Owner」仅系统管理员可执行；
+  部门文档管理员只能调整「权限比自己低」的成员（Owner 不可调整另一位 Owner，
+  系统管理员在所有部门均为 Owner 且一律放行）。
   可用 PORTAL_ENFORCE_ROLE=false 关闭（不推荐）。
 
+注册管控：
+  不允许任何用户自助注册 —— POST /api/v1/auth/register 一律 403；
+  凭管理员邀请链接的 /api/v1/auth/register-by-invite 默认允许，
+  置 PORTAL_ALLOW_INVITE_REGISTER=false 后连邀请注册一并关闭（账号全部由管理员开通）。
+
 门户自有接口（不走上游）：
-  POST /api/v1/portal/users/email       修改登录邮箱（本人或系统管理员；WeKnora 原生 API 未提供该能力，
-                                        门户直连其 Postgres 完成更新并撤销该用户会话）
+  POST /api/v1/portal/users/email       修改登录邮箱（仅系统管理员可改他人，本人不可自助修改；
+                                        WeKnora 原生 API 未提供该能力，门户直连其 Postgres 完成更新并撤销该用户会话）
   GET  /api/v1/portal/builtin-agents    查询内置智能体在当前部门内的停用列表（超管额外返回全部门映射）
   POST /api/v1/portal/builtin-agents    启用 / 禁用某部门的内置智能体（仅系统管理员，落在 data/builtin-agent-toggles.json）
   GET  /api/v1/portal/doc-folders       查询某知识库的文件夹树与文档归属（data/doc-folders.json）
@@ -103,6 +110,15 @@ ROLE_WRITE_PATHS = (
     re.compile(r"^/api/v1/tenants/[^/]+/invite-links(/|$)"),
 )
 
+# 部门内角色高低（数值越大权限越高）：owner > admin > contributor > viewer
+ROLE_RANK = {"owner": 3, "admin": 2, "contributor": 1, "viewer": 0}
+
+# 修改 / 移除指定成员：PUT/PATCH/DELETE /api/v1/tenants/{tid}/members/{user_id}
+MEMBER_ROLE_PATH = re.compile(r"^/api/v1/tenants/([^/]+)/members/([^/]+)/?$")
+
+# 超管重置成员密码：POST /api/v1/system/admin/users/reset-password
+RESET_PASSWORD_PATH = re.compile(r"^/api/v1/system/admin/users/reset-password/?$")
+
 # 问答流式接口：内置智能体被本部门禁用时拒绝提问
 CHAT_PATH = re.compile(r"^/api/v1/(knowledge-chat|agent-chat)/")
 
@@ -111,6 +127,17 @@ AGENT_LIST_PATH = re.compile(r"^/api/v1/agents/?$")
 
 # 文档上传接口：门户在此按可配置限制拦截（文件数量 / 单文件大小 / 合计大小）
 UPLOAD_PATH = re.compile(r"^/api/v1/knowledge-bases/[^/]+/knowledge/file/?$")
+
+# ------------------------------------------------------------------
+# 注册管控：不允许任何用户自助注册，账号只能由管理员开通
+#   /api/v1/auth/register            无邀请的自助注册 —— 一律 403
+#   /api/v1/auth/register-by-invite  凭管理员邀请链接加入 —— 默认允许，
+#                                    置 PORTAL_ALLOW_INVITE_REGISTER=false 可一并关闭
+# ------------------------------------------------------------------
+SELF_REGISTER_PATH = re.compile(r"^/api/v1/auth/register/?$")
+INVITE_REGISTER_PATH = re.compile(r"^/api/v1/auth/register-by-invite/?$")
+ALLOW_INVITE_REGISTER = os.environ.get(
+    "PORTAL_ALLOW_INVITE_REGISTER", "true").lower() not in ("0", "false", "no")
 
 _ROLE_CACHE = {}          # token -> (过期时间戳, {roles: {...}, privileged: bool})
 _ROLE_CACHE_TTL = 60      # 秒
@@ -196,6 +223,62 @@ def get_upstream_roles(token):
     with _ROLE_LOCK:
         _ROLE_CACHE[token] = (now + _ROLE_CACHE_TTL, info)
     return info
+
+
+# ------------------------------------------------------------------
+# 部门成员角色表：用于判断「被改角色的人是否比操作者权限低」
+# ------------------------------------------------------------------
+_MEMBER_CACHE = {}          # (token, tenant_id) -> (过期时间戳, {user_id: role})
+_MEMBER_CACHE_TTL = 60      # 秒
+_MEMBER_LOCK = threading.Lock()
+
+
+def fetch_member_roles(token, tenant_id):
+    """向上游拉取部门成员角色表 {user_id: role}。"""
+    req = urllib.request.Request(
+        UPSTREAM + "/api/v1/tenants/%s/members?page=1&page_size=200" % tenant_id,
+        method="GET",
+        headers={
+            "Authorization": "Bearer " + token,
+            "Accept": "application/json",
+            "Accept-Encoding": "identity",
+            "X-Tenant-ID": str(tenant_id),
+        },
+    )
+    with urllib.request.urlopen(req, timeout=10) as resp:
+        raw = json.loads(resp.read().decode("utf-8") or "{}")
+    data = raw.get("data") or raw
+    out = {}
+    for m in data.get("members") or []:
+        uid = str(m.get("user_id") or m.get("id") or "")
+        if uid:
+            out[uid] = (m.get("role") or "").lower()
+    return out
+
+
+def get_member_roles(token, tenant_id):
+    """带短期缓存的成员角色表；无法确定时返回 None（放行，由后端 RBAC 兜底）。"""
+    key = (token, str(tenant_id))
+    now = time.time()
+    with _MEMBER_LOCK:
+        hit = _MEMBER_CACHE.get(key)
+        if hit and hit[0] > now:
+            return hit[1]
+    try:
+        roles = fetch_member_roles(token, tenant_id)
+    except Exception:
+        return None
+    with _MEMBER_LOCK:
+        _MEMBER_CACHE[key] = (now + _MEMBER_CACHE_TTL, roles)
+    return roles
+
+
+def invalidate_member_roles(token, tenant_id):
+    """成员角色发生写操作后清掉缓存，避免读到旧角色。"""
+    if not token:
+        return
+    with _MEMBER_LOCK:
+        _MEMBER_CACHE.pop((token, str(tenant_id)), None)
 
 
 # ------------------------------------------------------------------
@@ -591,6 +674,76 @@ def update_login_email(user_id, new_email):
 
 
 # ------------------------------------------------------------------
+# 受保护的系统管理员账号（默认 admin@obara.local，与 admin_gate.py 的 GATE_ADMIN_EMAILS 一致）
+#   任何人都不能改它的角色 / 登录邮箱 / 密码，包括它自己
+# ------------------------------------------------------------------
+PROTECTED_ADMIN_EMAILS = {
+    e.strip().lower()
+    for e in os.environ.get("PORTAL_ADMIN_EMAILS", "admin@obara.local").split(",")
+    if e.strip()
+}
+
+_ADMIN_USER_CACHE = {}      # user_id -> (过期时间戳, 是否受保护)
+_ADMIN_USER_TTL = 60        # 秒
+_ADMIN_USER_LOCK = threading.Lock()
+_ADMIN_FLAG_COL = {"checked": False, "exists": False}
+
+
+def users_has_admin_flag():
+    """探测 users 表是否有 is_system_admin 列（不同版本 WeKnora 可能没有）。"""
+    if _ADMIN_FLAG_COL["checked"]:
+        return _ADMIN_FLAG_COL["exists"]
+    exists = False
+    try:
+        out = run_psql("SELECT count(*) FROM information_schema.columns"
+                       " WHERE table_name='users' AND column_name='is_system_admin';")
+        exists = (out or "0").strip().splitlines()[-1] == "1"
+    except PortalError:
+        exists = False
+    _ADMIN_FLAG_COL["checked"] = True
+    _ADMIN_FLAG_COL["exists"] = exists
+    return exists
+
+
+def fetch_protected_admin(user_id):
+    """按 users 表判断该账号是否属于受保护的系统管理员（超管标识 / 邮箱 / 用户名）。"""
+    uid = str(user_id or "")
+    if not SAFE_ID_RE.match(uid):
+        return False
+    emails = " OR ".join("lower(coalesce(email, '')) = '%s'" % sql_lit(e)
+                         for e in sorted(PROTECTED_ADMIN_EMAILS)) or "false"
+    flag = "coalesce(is_system_admin, false)" if users_has_admin_flag() else "false"
+    out = run_psql("SELECT (%s OR lower(coalesce(username, '')) = 'admin' OR %s)"
+                   " FROM users WHERE id = '%s' AND deleted_at IS NULL;" % (emails, flag, uid))
+    lines = (out or "").strip().splitlines()
+    return bool(lines) and lines[-1].lower() in ("t", "true", "1")
+
+
+def is_protected_admin_user(user_id):
+    """带短期缓存的判定；无法确定时返回 None（调用方按场景决定是否放行）。"""
+    uid = str(user_id or "")
+    if not uid:
+        return None
+    now = time.time()
+    with _ADMIN_USER_LOCK:
+        hit = _ADMIN_USER_CACHE.get(uid)
+        if hit and hit[0] > now:
+            return hit[1]
+    try:
+        protected = fetch_protected_admin(uid)
+    except PortalError as e:
+        sys.stderr.write("[WARN] 判定受保护管理员账号失败：%s\n" % e.message)
+        return None
+    with _ADMIN_USER_LOCK:
+        _ADMIN_USER_CACHE[uid] = (now + _ADMIN_USER_TTL, protected)
+    return protected
+
+
+def is_protected_admin_email(email):
+    return str(email or "").strip().lower() in PROTECTED_ADMIN_EMAILS
+
+
+# ------------------------------------------------------------------
 # 系统管理员审计视图：全员会话 / 文档上传记录
 #
 # 为什么直连数据库：
@@ -667,6 +820,8 @@ class PortalHandler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(data)))
+        # 前端资源每次校验：避免浏览器缓存旧版页面 / 脚本导致新功能不生效
+        self.send_header("Cache-Control", "no-cache, must-revalidate")
         self.end_headers()
         self.wfile.write(data)
 
@@ -734,6 +889,68 @@ class PortalHandler(BaseHTTPRequestHandler):
         if info is None or info.get("privileged"):
             return True, ""
         return False, "仅系统管理员可将成员设置为管理员（Admin）或文档管理员（Owner）"
+
+    def check_role_target(self):
+        """改成员角色 / 移除成员时：只能操作「权限比自己低」的成员。
+
+        权限等级 owner > admin > contributor > viewer：部门文档管理员（Owner）可
+        调整 admin / contributor / viewer，同级（另一位 Owner，含在所有部门都是
+        Owner 的系统管理员）不允许被改；系统管理员与身份不明的情况放行。
+        """
+        if not ENFORCE_ROLE or self.command not in MANAGE_METHODS:
+            return True, ""
+        m = MEMBER_ROLE_PATH.match(urlparse(self.path).path)
+        if not m:
+            return True, ""
+        token = self.bearer_token()
+        if not token:
+            return True, ""
+        # 受保护的系统管理员账号：任何人（含超管与它自己）都不可改其角色 / 移除它
+        if is_protected_admin_user(m.group(2)):
+            return False, "系统管理员（admin）的角色不可修改"
+        info = get_upstream_roles(token)
+        # 上游不可达时放行，由后端 RBAC 兜底；系统管理员不受限制
+        if info is None or info.get("privileged"):
+            return True, ""
+        tenant_id, target_user = m.group(1), m.group(2)
+        caller_rank = ROLE_RANK.get((info.get("roles") or {}).get(tenant_id, ""), -1)
+        if caller_rank < 0:
+            # 部门内角色未知：由管理类鉴权（仅 Owner 可执行）与后端 RBAC 兜底
+            return True, ""
+        members = get_member_roles(token, tenant_id)
+        if not members:
+            return True, ""
+        target_rank = ROLE_RANK.get(members.get(target_user, ""), -1)
+        if target_rank < 0 or target_rank < caller_rank:
+            return True, ""
+        return False, "只能修改权限比自己低的成员的角色（同级或更高权限的成员仅系统管理员可调整）"
+
+    def check_reset_password(self, body):
+        """重置密码：受保护的系统管理员账号任何人都不可重置，包括它自己。"""
+        if self.command != "POST" or not body:
+            return True, ""
+        if not RESET_PASSWORD_PATH.match(urlparse(self.path).path):
+            return True, ""
+        try:
+            payload = json.loads(body.decode("utf-8"))
+        except (ValueError, UnicodeDecodeError):
+            return True, ""
+        target_id = str((payload or {}).get("user_id", "")).strip()
+        email = str((payload or {}).get("email", "")).strip().lower()
+        if (target_id and is_protected_admin_user(target_id)) or is_protected_admin_email(email):
+            return False, "系统管理员（admin）的密码不可重置"
+        return True, ""
+
+    def check_register(self):
+        """注册管控：自助注册一律禁止；邀请注册可用 PORTAL_ALLOW_INVITE_REGISTER 关闭。"""
+        if self.command != "POST":
+            return True, ""
+        path = urlparse(self.path).path
+        if SELF_REGISTER_PATH.match(path):
+            return False, "系统不开放自助注册，账号由管理员统一开通，请联系系统管理员"
+        if INVITE_REGISTER_PATH.match(path) and not ALLOW_INVITE_REGISTER:
+            return False, "系统已关闭注册，账号由管理员统一开通，请联系系统管理员"
+        return True, ""
 
     def check_disabled_agent(self, body):
         """本部门已停用的内置智能体不允许发起问答。"""
@@ -826,9 +1043,15 @@ class PortalHandler(BaseHTTPRequestHandler):
         email = str(payload.get("email", "")).strip().lower()
         if not target or not email:
             raise PortalError(400, "缺少 user_id 或 email")
-        # 本人可改自己的登录邮箱；改他人必须系统管理员
-        if target != (info.get("user_id") or "") and not info.get("privileged"):
+        # 任何人都不能修改自己的登录邮箱（门户已移除该入口，此处为接口层兜底）
+        if target == (info.get("user_id") or ""):
+            raise PortalError(403, "不支持自助修改登录邮箱，请联系系统管理员")
+        # 改他人必须系统管理员
+        if not info.get("privileged"):
             raise PortalError(403, "仅系统管理员可修改他人登录邮箱")
+        # 受保护的系统管理员账号：任何人都不可修改，包括它自己
+        if is_protected_admin_email(email) or is_protected_admin_user(target):
+            raise PortalError(403, "系统管理员（admin）的登录邮箱不可修改")
         result = update_login_email(target, email)
         sys.stderr.write("[EMAIL] user=%s -> %s by %s\n" % (target, email, info.get("email") or info.get("user_id")))
         self.send_json(200, {"success": True, "data": result})
@@ -1282,6 +1505,12 @@ class PortalHandler(BaseHTTPRequestHandler):
         sys.stderr.write("[DENY] %s %s (%s) -> %s\n" % (self.command, self.path, reason, status))
         self.send_json(status, {"error": {"message": reason}})
 
+    def deny_redirect(self, reason, redirect="/"):
+        """拒绝并让前端弹出提示后跳转到指定页面（如注册被拒 → 回到登录页）。"""
+        sys.stderr.write("[DENY] %s %s (%s) -> 403 + redirect %s\n"
+                         % (self.command, self.path, reason, redirect))
+        self.send_json(403, {"error": {"message": reason, "redirect": redirect}})
+
     # ---------- 上传限制校验（代理层拦截，前端校验之外的兜底） ----------
     def check_upload_limits(self, body, content_type):
         limits = load_upload_limits()
@@ -1304,6 +1533,12 @@ class PortalHandler(BaseHTTPRequestHandler):
     def proxy(self):
         body = self.read_body()
 
+        # 注册管控：自助注册一律拒绝（前端无入口，此处为绕过前端调用接口的兜底）
+        allowed, reason = self.check_register()
+        if not allowed:
+            self.deny_redirect(reason, "/")
+            return
+
         # 文档上传：按系统管理员配置的限制拦截
         if self.command == "POST" and UPLOAD_PATH.match(urlparse(self.path).path):
             allowed, reason = self.check_upload_limits(body, self.headers.get("Content-Type", ""))
@@ -1318,6 +1553,21 @@ class PortalHandler(BaseHTTPRequestHandler):
                 return
 
         allowed, reason = self.check_role_elevation(body)
+        if not allowed:
+            self.deny(reason)
+            return
+
+        allowed, reason = self.check_role_target()
+        if not allowed:
+            self.deny(reason)
+            return
+
+        # 成员角色即将变更：让本部门的成员角色缓存立即失效
+        member_write = MEMBER_ROLE_PATH.match(urlparse(self.path).path)
+        if member_write and self.command in MANAGE_METHODS:
+            invalidate_member_roles(self.bearer_token(), member_write.group(1))
+
+        allowed, reason = self.check_reset_password(body)
         if not allowed:
             self.deny(reason)
             return
@@ -1443,6 +1693,13 @@ def main():
     print(f"  管理类写操作鉴权: {'开启（仅文档管理员 Owner）' if ENFORCE_ROLE else '关闭'}")
     if ENFORCE_ROLE:
         print("  角色提权保护: 仅系统管理员可把成员设为 管理员 Admin / 文档管理员 Owner")
+        print("  只能管理更低权限者: 部门文档管理员不可调整同级 / 更高权限成员")
+    print("  受保护管理员账号: %s（角色 / 登录邮箱 / 密码任何人都不可改，含其本人）"
+          % ", ".join(sorted(PROTECTED_ADMIN_EMAILS)))
+    print("  自助改登录邮箱: 已关闭（仅系统管理员可改他人）")
+    print("  自助注册: 已关闭（账号由管理员开通）")
+    print("  邀请链接注册: %s（PORTAL_ALLOW_INVITE_REGISTER=%s）"
+          % ("开启" if ALLOW_INVITE_REGISTER else "关闭", "true" if ALLOW_INVITE_REGISTER else "false"))
     print(f"  内置智能体启停文件: {AGENT_TOGGLE_FILE}")
     print(f"  邮箱变更直连数据库: docker exec {PG_CONTAINER} psql -d {PG_DB}")
     print(f"  按 Ctrl+C 停止")

@@ -493,6 +493,19 @@ journalctl -u obara-portal -f
 
 实现方式：WeKnora 原生前端容器改为监听内部端口 `8088`（`.env` 的 `FRONTEND_PORT`），80 端口由 `obara-admin-gate.service`（`portal/admin_gate.py`）接管并反向代理。网关在登录接口按邮箱白名单拦截，并对携带 Bearer 令牌的 API 请求校验令牌归属邮箱，非白名单一律拒绝，避免拿到令牌后绕过登录页直调原生后台 API。
 
+**注册策略（任何人都不能注册）**
+
+| 入口 | 登录 | 注册 |
+| --- | --- | --- |
+| `80` 原生后台 | 仅白名单管理员 | 注册 / 找回密码 / 重置密码接口，以及 `/register`、`/signup` 页面一律 403 |
+| `8081` 门户 | 全体员工（账号由管理员开通） | 自助注册 `POST /api/v1/auth/register` 一律 403；邀请链接注册默认保留，可用 `PORTAL_ALLOW_INVITE_REGISTER=false` 关闭 |
+
+被拦截后的表现：**只弹一个居中弹窗**。页面正中弹出 OBARA 风格卡片（蓝色警示图标 + 原因 + 倒计时进度条 + 「立即前往 8081 门户」按钮），倒计时结束自动跳转 `http://192.168.227.133:8081/`；原生后台自己那条顶部提示条（TDesign `t-message`）会被隐藏，不会出现「两个弹窗」。注册被拒（「系统不开放自助注册…」）同样只有这张居中卡片。地址栏直接访问注册页时走提示页（含倒计时与「立即前往」链接）；在原生后台页面内点登录 / 进注册页时，由网关注入到 HTML 中的守卫脚本接管 `fetch` / `XHR` 与 SPA 路由，并用 `MutationObserver` 兜底（页面上一出现拦截文案即触发）。跳转地址由 `GATE_PORTAL_URL` 指定（部署脚本按服务器内网 IP 自动写入，如 `http://192.168.227.133:8081/`；未设置才回退 `http://<请求 Host>:8081/`，端口用 `GATE_PORTAL_PORT`），停留时长用 `GATE_REDIRECT_DELAY_MS` 调整（默认 3000 毫秒）。
+
+> 改版后首次访问请 `Ctrl+Shift+R` 硬刷新：网关对 HTML 下发 `Cache-Control: no-store`、门户静态资源下发 `no-cache`，之后浏览器不会再拿旧页面。
+
+> 批量开户不受影响：`scripts/multi-tenant/init-tenants.sh` 直连后端 `8080`（不经 80 网关 / 8081 门户）调用 `/auth/register`，仍可一次性创建全部成员账号；因此 `.env` 的 `DISABLE_REGISTRATION` 保持 `false` 即可。
+
 ```bash
 # 启用守卫（幂等；会把前端挪到 8088 并安装 systemd 服务）
 sudo bash scripts/deploy/enable-admin-gate.sh
@@ -542,6 +555,24 @@ GET  /api/v1/portal/admin/uploads                       # 文档上传记录
 ```
 
 接口一律以 `/auth/me` 的 `is_system_admin` / `can_access_all_tenants` 校验，普通成员调用返回 403。
+
+### 5.5 成员与账号权限管控（8081 门户）
+
+门户成员管理按「**前端不显示 + 代理层二次拦截**」双层控制，绕过页面直接调 API 同样被拒。
+
+**角色等级**：`owner`（文档管理员）>`admin`（管理员）>`contributor`（普通成员）>`viewer`（只读成员）。
+
+| 约束 | 规则 | 落地位置 |
+| --- | --- | --- |
+| 管理类写操作 | 部门的人员 / 邀请、智能体、知识库与文档写操作，仅本部门 `owner` 可执行（超管放行） | `server.py` `check_manage_role()` |
+| 提权保护 | 把成员设为 `admin` / `owner` 仅系统管理员可执行 | `server.py` `check_role_elevation()` |
+| 只能管理比自己权限低的人 | 部门 `owner` 可调整 / 移除 `admin`、`contributor`、`viewer`；同级或更高（另一位 `owner`，含在所有部门均为 `owner` 的超管）不可操作 | 前端 `canManageMember()`；代理层 `check_role_target()` 比对成员角色表（60s 缓存，写后失效） |
+| 受保护的系统管理员账号 | `admin@obara.local` 的**角色、登录邮箱、密码任何人都不可更改，包括它自己** | 前端隐藏按钮；代理层拦 `PUT/DELETE /tenants/{id}/members/{user_id}`、`POST /system/admin/users/reset-password`，门户接口拦 `POST /portal/users/email` |
+| 登录邮箱不允许自助修改 | 右上角入口已移除；**任何人都不能改自己的登录邮箱**，仅超管可在「人员管理」改他人邮箱 | `portal_update_email()` 禁止 `target == 自己`；超管改他人受上一条约束 |
+
+受保护管理员邮箱用环境变量 `PORTAL_ADMIN_EMAILS`（逗号分隔，默认 `admin@obara.local`）配置，前端对应的 `index.html` 里 `window.OBARA_ADMIN_EMAILS` 需同步；整套二次鉴权可用 `PORTAL_ENFORCE_ROLE=false` 临时关闭（不推荐）。
+
+> 完整角色矩阵、RBAC 与邀请流程见 [`docs/multi-tenant-design.md`](docs/multi-tenant-design.md) 第 2.2 / 2.5 节。
 
 ---
 
@@ -635,9 +666,9 @@ obara-weknora-setup/
 | --- | --- |
 | `scripts/multi-tenant/init-tenants.sh` | 多租户初始化：一键创建 16 个部门工作空间 + 批量接入成员（全部为 Contributor，不设默认管理员，Owner 由超管事后手动指派） |
 | `data/departments-personnel.json` | 16 个部门（NJG×9 + SHA×7）及全部人员清单（仅邮箱与用户名，无管理员标记） |
-| `docs/multi-tenant-design.md` | 多租户部门隔离方案：组织映射、隔离机制、邀请流程、新门户设计与部署步骤 |
+| `docs/multi-tenant-design.md` | 多租户部门隔离方案：组织映射、隔离机制、邀请流程、登录与注册策略（80 端口仅管理员、禁止自助注册）、新门户设计与部署步骤 |
 | `portal/index.html` / `styles.css` / `app.js` | OBARA 知识问答平台门户（8081）前端：问答 + 部门/人员/智能体/文档管理（人员/智能体/文档仅 Owner 可见） |
-| `portal/server.py` | 门户 HTTP 服务 + `/api/*` 反向代理到 WeKnora 后端（解决 CORS），并对管理类写操作做 Owner 二次鉴权 |
+| `portal/server.py` | 门户 HTTP 服务 + `/api/*` 反向代理到 WeKnora 后端（解决 CORS）；管理类写操作 Owner 二次鉴权、提权保护、只能管理更低权限成员、受保护管理员账号保护（见 §5.5） |
 | `portal/start.sh` | 门户启动脚本（支持 `--port` / `--upstream` / `--daemon`），启动时自动执行构建版本号打标 |
 | `scripts/portal/build-version.py` | 门户构建版本号打标：左下角「当前版本 YY-MM-DD」，当天多次构建追加 `-V2`/`-V3`（`--check` 只看不写） |
 | `scripts/kb/init-welding-gun-kb.sh` | 阶段六：建库 + 绑定模型 + 导入文档 + 创建受管智能体 + 写入检索参数（幂等，支持 `--no-wait` / `--pause` / `--resume` / `--status`） |

@@ -56,6 +56,38 @@ function authHeaders(extra = {}) {
   return { ...h, ...extra };
 }
 
+// 居中弹窗：提示原因 + 倒计时 + 「立即前往」，倒计时结束自动跳转（与 80 端口守卫弹窗同一风格）
+function showRedirectDialog(msg, url, delayMs = 3000) {
+  const wrap = document.createElement('div');
+  wrap.className = 'obara-rd-mask';
+  wrap.innerHTML = `
+    <div class="obara-rd-card" role="alertdialog" aria-modal="true">
+      <div class="obara-rd-icon">
+        <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>
+      </div>
+      <h2 class="obara-rd-title">无法继续</h2>
+      <p class="obara-rd-msg"></p>
+      <div class="obara-rd-count"><span class="obara-rd-sec">3</span> 秒后自动跳转到 OBARA 门户登录页</div>
+      <div class="obara-rd-bar"><i></i></div>
+      <a class="obara-rd-btn" href="${escapeHtml(url)}">立即前往登录页</a>
+      <p class="obara-rd-foot">OBARA 知识问答平台</p>
+    </div>`;
+  wrap.querySelector('.obara-rd-msg').textContent = msg;
+  document.body.appendChild(wrap);
+
+  const total = Math.max(1, Math.round(delayMs / 1000));
+  const secEl = wrap.querySelector('.obara-rd-sec');
+  const barEl = wrap.querySelector('.obara-rd-bar i');
+  let left = total;
+  secEl.textContent = left;
+  const timer = setInterval(() => {
+    left -= 1;
+    if (left <= 0) { clearInterval(timer); location.replace(url); return; }
+    secEl.textContent = left;
+    barEl.style.width = (left / total * 100) + '%';
+  }, 1000);
+}
+
 async function api(method, path, body = null, opts = {}) {
   const init = { method, headers: authHeaders(opts.headers || {}) };
   if (body && !(body instanceof FormData)) init.body = JSON.stringify(body);
@@ -65,9 +97,11 @@ async function api(method, path, body = null, opts = {}) {
   let data;
   try { data = text ? JSON.parse(text) : {}; } catch { data = { raw: text }; }
   if (!resp.ok) {
-    // 后端错误体：{"error":{"message":"..."}} 或 {"message":"..."}
+    // 后端错误体：{"error":{"message":"...", "redirect":"/"}} 或 {"message":"..."}
     const e = data && data.error;
     const msg = (e && (e.message || e.details)) || (data && data.message) || `HTTP ${resp.status}`;
+    // 后端要求跳转（如注册被拒）：居中弹窗提示原因，倒计时结束后跳回登录页
+    if (e && e.redirect) showRedirectDialog(msg, e.redirect || '/');
     throw new Error(msg);
   }
   return data;
@@ -145,6 +179,12 @@ const MANAGE_PAGES = ['members', 'agents', 'documents'];
 // 平台管理页：跨越部门查看他人数据，仅系统管理员可用
 const ADMIN_PAGES = ['all-conversations', 'upload-records'];
 const ROLE_TEXT = { owner: '文档管理员', admin: '管理员', contributor: '普通成员', viewer: '只读成员' };
+// 部门内角色高低（数值越大权限越高）：owner > admin > contributor > viewer
+const ROLE_RANK = { owner: 3, admin: 2, contributor: 1, viewer: 0 };
+// 受保护的系统管理员账号（与 admin_gate.py 的 GATE_ADMIN_EMAILS 一致）：
+// 任何人都不能改它的角色 / 登录邮箱 / 密码，包括它自己
+const PROTECTED_ADMIN_EMAILS = String(window.OBARA_ADMIN_EMAILS || 'admin@obara.local')
+  .split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
 
 function roleText(role) { return ROLE_TEXT[role] || role || '未知角色'; }
 
@@ -299,6 +339,7 @@ async function initRegisterPage() {
     document.getElementById('register-subtitle').innerHTML =
       `你将加入 <strong>${escapeHtml(d.tenant_name || ('空间 ' + d.tenant_id))}</strong>，角色：<strong>${roleText(d.role)}</strong>`;
   } catch (err) {
+    // 注册被平台关闭（后端返回 redirect）：弹提示后由 api() 跳转登录页，不再停留在注册页
     document.getElementById('register-subtitle').textContent = '邀请链接无效或已过期：' + err.message;
     document.getElementById('register-form').classList.add('hidden');
   }
@@ -1011,6 +1052,7 @@ async function loadMembers() {
     // 邀请列表里既有「指定邮箱」的邀请，也有「共享链接」邀请（is_share_link=true）
     const invites = (iResp.data || {}).invitations || [];
     cachedInvites = invites;
+    cachedMembers = members;
     mb.innerHTML = members.length === 0 ? '<div class="empty-tip">暂无成员</div>' : `<table>
       <thead><tr><th>姓名</th><th>邮箱</th><th>角色</th><th>操作</th></tr></thead>
       <tbody>
@@ -1019,12 +1061,14 @@ async function loadMembers() {
           <td>${escapeHtml(m.email || '')}</td>
           <td>${getRoleBadge(m.role)}</td>
           <td class="row-actions">
-            <button class="btn btn-sm btn-secondary" onclick="changeMemberRole('${m.user_id}','${m.role}')">改角色</button>
-            ${isSystemAdmin()
+            ${canManageMember(m)
+              ? `<button class="btn btn-sm btn-secondary" onclick="changeMemberRole('${m.user_id}','${m.role}')">改角色</button>`
+              : ''}
+            ${isSystemAdmin() && !isProtectedAdmin(m)
               ? `<button class="btn btn-sm btn-secondary" onclick="changeMemberEmail('${m.user_id}','${escapeHtml(m.email || '')}')">改邮箱</button>
                  <button class="btn btn-sm btn-secondary" onclick="resetMemberPassword('${m.user_id}','${escapeHtml(m.email || '')}','${escapeHtml(m.username || m.name || '').replace(/'/g, "\\'")}')">重置密码</button>`
               : ''}
-            ${m.role !== 'owner' ? `<button class="btn btn-sm btn-ghost" onclick="removeMember('${m.user_id}','${escapeHtml(m.username || m.name || '').replace(/'/g, "\\'")}','${escapeHtml(m.email || '')}')">移除</button>` : ''}
+            ${canManageMember(m) ? `<button class="btn btn-sm btn-ghost" onclick="removeMember('${m.user_id}','${escapeHtml(m.username || m.name || '').replace(/'/g, "\\'")}','${escapeHtml(m.email || '')}')">移除</button>` : ''}
           </td>
         </tr>`).join('')}
       </tbody>
@@ -1055,32 +1099,68 @@ const ROLE_OPTION_VIEWER = '<option value="viewer">只读成员（Viewer）</opt
 const ROLE_OPTION_ADMIN = '<option value="admin">管理员（Admin）</option>';
 const ROLE_OPTION_OWNER = '<option value="owner">文档管理员（Owner）</option>';
 
+// 受保护的系统管理员账号：任何人都不可改其角色 / 登录邮箱 / 密码（含它自己）
+function isProtectedAdmin(m) {
+  if (!m) return false;
+  const email = String(m.email || '').toLowerCase();
+  const name = String(m.username || m.name || '').toLowerCase();
+  return PROTECTED_ADMIN_EMAILS.includes(email) || name === 'admin';
+}
+
+// 只能管理「权限比自己低」的成员：系统管理员不受限；部门文档管理员（Owner）不能动
+// 同级或更高的成员（另一位 Owner，含在所有部门都是 Owner 的系统管理员）。
+function rankBelowMine(memberRole) {
+  if (isSystemAdmin()) return true;
+  const mine = ROLE_RANK[String(currentRole() || '').toLowerCase()];
+  const target = ROLE_RANK[String(memberRole || '').toLowerCase()];
+  if (mine == null || target == null) return false;
+  return target < mine;
+}
+
+// 成员是否可被当前用户改角色 / 移除
+function canManageMember(m) {
+  if (isProtectedAdmin(m)) return false;
+  return rankBelowMine(m && m.role !== undefined ? m.role : m);
+}
+
 // 管理员 / 文档管理员只能由系统管理员授予；部门文档管理员只能指派普通角色。
 // 代理层（portal/server.py）会二次拦截，前端只是不放选项。
-function roleOptionsHtml() {
-  if (isSystemAdmin()) {
-    return ROLE_OPTION_CONTRIBUTOR + ROLE_OPTION_VIEWER + ROLE_OPTION_ADMIN + ROLE_OPTION_OWNER;
+function roleOptionsHtml(currentRole) {
+  const opts = isSystemAdmin()
+    ? [ROLE_OPTION_CONTRIBUTOR, ROLE_OPTION_VIEWER, ROLE_OPTION_ADMIN, ROLE_OPTION_OWNER]
+    : [ROLE_OPTION_CONTRIBUTOR, ROLE_OPTION_VIEWER];
+  // 目标当前角色高于可选范围时补一项「保持当前角色」，避免下拉默认跳到其它值
+  const cur = String(currentRole || '').toLowerCase();
+  if (cur && !opts.some(o => o.includes(`value="${cur}"`))) {
+    opts.unshift(`<option value="${cur}">${roleText(cur)}（保持当前角色）</option>`);
   }
-  return ROLE_OPTION_CONTRIBUTOR + ROLE_OPTION_VIEWER;
+  return opts.join('');
 }
 function roleLimitHint() {
   return isSystemAdmin() ? '' : '<p class="form-hint">管理员（Admin）与文档管理员（Owner）仅系统管理员可设置</p>';
 }
 
 async function changeMemberRole(userId, currentRole) {
+  const member = (cachedMembers || []).find(m => String(m.user_id) === String(userId))
+    || { user_id: userId, role: currentRole };
+  // 系统管理员账号（admin）任何人都不能改，包括它自己
+  if (isProtectedAdmin(member)) {
+    toast('系统管理员（admin）的角色不可修改', 'error');
+    return;
+  }
+  // 只能调整权限比自己低的成员；部门文档管理员不能改同级或更高权限的成员
+  if (!rankBelowMine(member.role)) {
+    toast('只能修改权限比自己低的成员的角色', 'error');
+    return;
+  }
   openModal('修改成员角色', `
     <div class="form-group">
       <label>新角色</label>
-      <select id="member-role">${roleOptionsHtml()}</select>
+      <select id="member-role">${roleOptionsHtml(currentRole)}</select>
       ${roleLimitHint()}
     </div>
   `, async () => {
     const role = document.getElementById('member-role').value;
-    // 管理员 / 文档管理员本人的角色调整只能由系统管理员执行，避免部门管理员误操作降级
-    if (!isSystemAdmin() && ['owner', 'admin'].includes(String(currentRole))) {
-      toast('管理员 / 文档管理员的角色调整仅系统管理员可操作', 'error');
-      return false;
-    }
     try {
       await api('PUT', `/tenants/${STATE.currentTenantId}/members/${userId}`, { role });
       toast('角色已更新', 'success');
@@ -1092,6 +1172,7 @@ async function changeMemberRole(userId, currentRole) {
 }
 
 let cachedInvites = [];
+let cachedMembers = [];   // 最近一次加载的成员列表，用于改角色时判断是否受保护 / 权限是否低于自己
 async function copyInviteUrl(id) {
   const inv = cachedInvites.find(x => String(x.id) === String(id));
   const url = inv && inv.invite_url;
@@ -1173,36 +1254,13 @@ function showInviteModal() {
 }
 
 // ---------- 登录邮箱修改 / 密码重置 ----------
-// 修改登录邮箱：本人可改自己，系统管理员可改任何人（WeKnora 原生无此 API，由门户 /portal/users/email 落库）
-function showMyEmailModal() {
-  const menu = document.getElementById('user-menu');
-  if (menu) menu.classList.add('hidden');
-  openModal('修改我的登录邮箱', `
-    <div class="form-group">
-      <label>当前邮箱</label>
-      <input id="my-email-old" value="${escapeHtml(currentUserEmail())}" disabled />
-    </div>
-    <div class="form-group">
-      <label>新邮箱（登录账号）</label>
-      <input type="email" id="my-email-new" placeholder="请输入新的登录邮箱" />
-      <p class="form-hint">修改后当前会话会失效，需用新邮箱重新登录</p>
-    </div>
-  `, async () => {
-    const email = document.getElementById('my-email-new').value.trim();
-    if (!email) { toast('请输入新邮箱', 'warning'); return false; }
-    try {
-      await updateUserEmail(currentUserId(), email);
-    } catch (err) { toast('修改失败：' + err.message, 'error'); return false; }
-    closeModal();
-    toast('邮箱已更新，请重新登录', 'success');
-    localStorage.removeItem('obara_token');
-    STATE.token = '';
-    STATE.user = null;
-    showLoginOnly();
-  });
-}
-
+// 修改登录邮箱：不支持自助修改（本人也不行），仅系统管理员可改他人；
+// 系统管理员（admin）账号的邮箱不可修改（WeKnora 原生无此 API，由门户 /portal/users/email 落库）
 async function changeMemberEmail(userId, oldEmail) {
+  if (isProtectedAdmin({ email: oldEmail })) {
+    toast('系统管理员（admin）的登录邮箱不可修改', 'error');
+    return;
+  }
   openModal('修改成员登录邮箱', `
     <div class="form-group">
       <label>当前邮箱</label>
@@ -1227,6 +1285,10 @@ async function changeMemberEmail(userId, oldEmail) {
 
 async function updateUserEmail(userId, email) {
   if (!userId) throw new Error('未取到用户 ID');
+  // 任何人都不能修改自己的登录邮箱
+  if (String(userId) === String(currentUserId())) {
+    throw new Error('不支持自助修改登录邮箱，请联系系统管理员');
+  }
   await api('POST', '/portal/users/email', { user_id: userId, email: email.trim().toLowerCase() });
 }
 
@@ -1249,6 +1311,11 @@ function randomPassword() {
 // 系统管理员随机重置成员密码（后端 /system/admin/users/reset-password 接口，仅超管可用）
 async function resetMemberPassword(userId, email, username) {
   if (!email) { toast('该成员没有登录邮箱，无法重置密码', 'warning'); return; }
+  // 系统管理员（admin）账号的密码任何人都不能重置，包括它自己
+  if (isProtectedAdmin({ email, username })) {
+    toast('系统管理员（admin）的密码不可重置', 'error');
+    return;
+  }
   const who = username || email;
   const ok = await askConfirmBox({
     dialogTitle: '重置成员密码',

@@ -55,7 +55,7 @@
 | 源码目录 | `/opt/obara/weknora`（Tag `v0.8.3`，commit `3e22822`） |
 | 镜像本地化 | `weknora-app`、`weknora-docreader`、`paradedb`、`weknora-ui`、`redis` 共 5 个（约 6.7 GB） |
 | 运行容器 | `WeKnora-app`、`WeKnora-frontend`、`WeKnora-docreader`、`WeKnora-postgres`、`WeKnora-redis` |
-| 端口 | 前端 `80`、后端 `8080` |
+| 端口 | 后端 `8080`；原生前端已移至内部 `8088`，对外 `80` 由登录守卫 `obara-admin-gate` 接管（仅管理员可登录、禁止注册；被拦截时只弹一个居中卡片并倒计时跳 `http://192.168.227.133:8081/`，见 README §5.2） |
 | 健康检查 | `curl http://localhost:8080/health` → `{"status":"ok"}` |
 | 存储 | `STORAGE_TYPE=local`，数据卷 `postgres-data` / `data-files` / `docreader-tmp` |
 
