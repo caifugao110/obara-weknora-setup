@@ -3,7 +3,7 @@
 > 本文记录**阶段一（Docker 环境）、阶段二（WeKnora 部署）、阶段三（Ollama 本地向量模型）、阶段四（DeepSeek 对话模型）与阶段五（本地 Rerank 重排服务）**的实际执行过程、遇到的问题与验证结果。
 > 顶层方案见 [README](../../README.md)；本文只记录"实际怎么做的、踩了什么坑"，便于复现与交接。
 >
-> 最后更新：2026-10-25（阶段五已完成）
+> 最后更新：2026-11-18（新增第十章：线上服务器 `192.168.160.42` 重建部署记录）
 
 ---
 
@@ -863,3 +863,223 @@ journalctl -u obara-admin-gate -f        # [DENY] / [DENY-PAGE] 拦截记录
 | 阶段六 | 创建知识库（绑定 `bge-m3`）、创建 Agent（绑定 `deepseek-flash`）、导入试点文档、验证解析与选型问答 | 🔄 **进行中**：链路已通（智能体 + 提示词 + 小样本验收通过，见第六章）；待决策是否按扁平格式全量重导 18,689 行（预计 3.5 ~ 4 小时） |
 
 各阶段详细方案与验收清单见 [README §4 部署步骤](../../README.md#4-部署步骤)。
+
+---
+
+## 十、线上服务器重建部署（`192.168.160.42`，2026-11-17 ~ 11-18）
+
+### 10.1 背景与目标
+
+在客户内网一台全新虚机上重建 OBARA 知识库系统，只做**阶段一（Docker）+ 阶段二（WeKnora v0.8.3）+ 阶段三（Ollama 向量模型）**，
+DeepSeek 对话模型、Rerank 与知识库初始化留待后续。
+
+与第四章那台机器（`192.168.227.133`，Ubuntu 20.04 / 15 GB）最大的不同：
+**这台机器的公网出口极不稳定**，镜像拉取成为整个部署中唯一、也是耗时最长的阻塞点。本章重点记录这部分。
+
+### 10.2 环境基线
+
+| 项 | 实测值 |
+| --- | --- |
+| 主机名 / IP | `obaraknow` / `192.168.160.42` |
+| 操作系统 | Ubuntu 26.04.1 LTS（内核 7.0.0-43-generic） |
+| 架构 | x86_64 |
+| vCPU / 内存 / 磁盘 | 6 核 / **30 GB** / 98 GB 根分区（部署后已用 38 GB，剩 56 GB） |
+| Docker Engine | 29.1.3 |
+| Docker Compose | 2.40.3（V2 插件） |
+| Ollama | 0.17.5，监听 `0.0.0.0:11434`，模型目录 `/opt/ollama/models` |
+| 部署目录 | `/opt/obara/weknora` |
+| 服务端口 | 前端 `80`、后端 `8080`、Ollama `11434` |
+
+`/etc/docker/daemon.json` 最终配置：
+
+```json
+{
+  "registry-mirrors": [
+    "https://docker.m.daocloud.io",
+    "https://docker.1ms.run",
+    "https://docker.xuanyuan.me",
+    "https://docker.1panel.live"
+  ],
+  "exec-opts": ["native.cgroupdriver=systemd"],
+  "storage-driver": "overlay2",
+  "log-driver": "json-file",
+  "log-opts": { "max-size": "100m", "max-file": "3" },
+  "live-restore": true,
+  "dns": ["223.5.5.5", "114.114.114.114"],
+  "max-concurrent-downloads": 16
+}
+```
+
+> `max-concurrent-downloads` 提到 16 是为弱网下的多连接吞吐；正常网络保持默认 3 即可。
+
+### 10.3 部署目录与配置
+
+`/opt/obara/weknora/` 下只放三样东西，不引入源码树：
+
+| 文件 | 来源 / 说明 |
+| --- | --- |
+| `docker-compose.yml` | WeKnora `v0.8.3` tag 的官方文件（GitHub raw） |
+| `config/config.yaml` | 同上 |
+| `.env` | 由 `.env.example` 派生，`chmod 600` |
+
+`.env` 中本次实际生效的关键项（**密钥类的值一律不落文档**）：
+
+```dotenv
+WEKNORA_VERSION=v0.8.3
+APP_PORT=8080
+FRONTEND_PORT=80
+MAX_FILE_SIZE_MB=100
+OLLAMA_BASE_URL=http://host.docker.internal:11434
+JWT_SECRET=<随机>
+SYSTEM_AES_KEY=<随机 32 字节>
+SYSTEM_SIGNING_KEY=<随机>
+DB_PASSWORD=<随机>
+REDIS_PASSWORD=<随机>
+```
+
+- `DB_*` / `REDIS_*` 只在本机容器网络内使用，密码仍按随机生成
+- `SYSTEM_AES_KEY` **必须单独备份**：数据库中的模型凭据用它加密，丢失后无法解密
+- compose 中 `app` 与 `docreader` 均需 `extra_hosts: ["host.docker.internal:host-gateway"]`，否则容器内解析不到宿主机 Ollama
+
+配置完成后先做静态校验，再拉镜像：
+
+```bash
+cd /opt/obara/weknora
+sudo docker compose config --quiet      # 无输出即通过
+```
+
+### 10.4 镜像获取：从"永远下不完"到断点续传
+
+这是本次部署的核心问题，完整记录以免后人重复踩坑。
+
+#### 10.4.1 现象与时间线
+
+| 时间点 | 现象 |
+| --- | --- |
+| 开始 | 直连 Docker Hub，`registry-1.docker.io` 被解析到 `199.16.156.11`（**DNS 污染**），连接直接超时 |
+| 配置 mirror 后 | `weknora-app`（1.7 GB）、`weknora-ui`（83 MB）、`redis`（33 MB）陆续拉取成功 |
+| 中途 | `docreader`（3.91 GB）反复 `Retrying -> 从头开始`，进度永远停在 21 层左右，`paradedb` 也卡过 |
+| 数小时后 | 公网出口彻底中断：`ping 223.5.5.5` 100% 丢包、`https://www.baidu.com` 也超时，但内网网关 `192.168.160.1` 正常（0.6 ms） |
+| 恢复窗口 | 出口时好时坏，好的时候单层能跑到 8 MB/s，坏的时候所有镜像站 TCP 443 全失败 |
+
+#### 10.4.2 镜像站实测（出口恢复窗口内测得）
+
+| 镜像站 | `/v2/` | manifest | blob 下载 | 备注 |
+| --- | --- | --- | --- | --- |
+| `docker.367231.xyz` | 206/429 | 429（限流） | ✅ 可达，峰值约 0.9 MB/s | **本次主力**，限流时换源稍后重试 |
+| `hub.1panel.dev` | 200 | 200 | ✅ 约 36 KB/s | 稳定但慢 |
+| `docker.1panel.live` | 200 | 200 | ✅ 约 40 KB/s | 稳定但慢 |
+| `dockerproxy.cool` | 200 | 200 | ✅ 约 41 KB/s | 部分 blob 会 302 到 Cloudflare |
+| `docker.1ms.run` / `docker.m.daocloud.io` / `docker.xuanyuan.dev` | 401 | 401 | 需认证 | 作为 `registry-mirrors` 可用 |
+| `docker.nju.edu.cn` | 403 | 403 | — | 不可用 |
+| `docker.sparkcr.cn` / `hub.rat.dev` | 000 | 000 | — | 连不通 |
+
+> 关键教训：**`/v2/` 返回 200 不代表能拉镜像**。部分站点的 blob 会 302 到
+> `production.cloudflare.docker.com`，该域名在这条线路上被干扰，表现为"控制面正常、数据面全超时"。
+
+#### 10.4.3 根因：`docker pull` 没有跨次断点续传
+
+`docker pull` 的层下载是"要么整层完成、要么丢弃"：
+
+- 776 MB 的 `215e8f98e033` 需要连续可用窗口约 100 秒（按 8 MB/s）到 2 小时（按 40 KB/s）
+- 出口每几分钟就断一次，于是每次重试都**从 0 字节开始**
+- 表面现象是"已经 21 层了、就差一层"，实际那一层永远不会完成
+
+**错误做法**（本次都试过，无效）：
+
+- 反复 `docker compose pull` —— 每轮重下，越试越慢
+- 中途 `systemctl restart docker` / 关机 —— 未提交的层全部作废，进度归零
+- 只换 `registry-mirrors` —— 换源不改变"断线重来"的本质
+
+#### 10.4.4 解决：`scripts/deploy/pull-images-resilient.sh`
+
+改为自己下载 blob，再把结果交给 `docker load`：
+
+1. `curl -C -` 按 Range 续传，写入 `/opt/obara/image-cache/oci/blobs/sha256/`
+2. 单层低于 20 KB/s 持续 25 秒即断开换源，避免挂在死连接上
+3. 6 线程并发，多源轮换
+4. 全部 blob 大小与 manifest 声明一致后，解包 gzip 层为 `layer.tar`，生成 `manifest.json`
+5. `tar` 打包成 docker-archive，`docker load -i`
+
+实测：`docreader` 共 18 层、压缩 1.5 GB，在**多次断网窗口**下累计完成，最终解包 3.78 GB 并一次 `docker load` 成功。
+
+```bash
+sudo bash scripts/deploy/pull-images-resilient.sh wechatopenai/weknora-docreader:v0.8.3
+```
+
+#### 10.4.5 导入环节的两个坑
+
+| 尝试 | 结果 | 原因 |
+| --- | --- | --- |
+| 手工构造 OCI layout 后 `docker load` | ❌ `does not contain a manifest.json` | `docker load` 只认 docker-archive，不认 OCI layout |
+| `ctr -n moby images import --base-name docker.io/repo:tag` | ⚠️ 镜像名变成 `repo:tag:tag` | `--base-name` 不能再带 tag |
+| `ctr -n moby images export` | ❌ `archive/tar: write too long` | content store 与 OCI 布局尺寸校验不一致 |
+| 解包 gzip 层 + 写 `manifest.json` + `tar` + `docker load` | ✅ 成功 | 完全绕开 containerd content store |
+
+### 10.5 Ollama 与本地向量模型（离线中转）
+
+目标机 GitHub / Docker Hub 都不稳定，Ollama 安装包与模型改由**本地开发机中转**：
+
+1. 本机下载 `ollama` Linux amd64 包与 `bge-m3` GGUF（约 1.2 GB）
+2. `scp` 内网传输（实测 69 MB/s），目标机 `dpkg -i` / `systemctl enable --now ollama`
+3. 模型放入 `/opt/ollama/models`，`ollama list` 可见 `bge-m3:latest`
+4. **校验一致性**：落地后比对文件 SHA256 与官方 blob 摘要一致，排除中转损坏
+5. 向量化验证：`POST /api/embeddings` 返回 **1024 维**，与 WeKnora 对 `bge-m3` 的预期一致
+
+```
+NAME             ID              SIZE      MODIFIED
+bge-m3:latest    4f859d51bade    1.2 GB    ...
+```
+
+`OLLAMA_BASE_URL=http://host.docker.internal:11434` 已在 `.env` 中预置，
+容器启动后 `docker exec WeKnora-app curl http://host.docker.internal:11434/api/tags` 可直接返回模型清单。
+
+### 10.6 启动与验证
+
+```bash
+cd /opt/obara/weknora
+sudo docker compose up -d
+sudo docker compose ps
+```
+
+启动顺序由 compose 的健康检查串联：`postgres` / `docreader` 先 healthy → `app` 启动并 healthy → `frontend` 启动。
+
+| 容器 | 状态 | 端口 |
+| --- | --- | --- |
+| `WeKnora-frontend` | Up | `0.0.0.0:80->80` |
+| `WeKnora-app` | Up (healthy) | `0.0.0.0:8080->8080` |
+| `WeKnora-docreader` | Up (healthy) | `50051`（仅容器网络） |
+| `WeKnora-postgres` | Up (healthy) | `5432`（仅容器网络） |
+| `WeKnora-redis` | Up | `6379`（仅容器网络） |
+
+验收命令与结果：
+
+```bash
+curl -s http://localhost:8080/health          # {"status":"ok"}
+curl -s -o /dev/null -w '%{http_code}' http://localhost/   # 200
+docker exec WeKnora-app curl -s http://host.docker.internal:11434/api/tags | head -c 120
+# {"models":[{"name":"bge-m3:latest", ...
+```
+
+对外访问地址：**`http://192.168.160.42/`**
+
+### 10.7 踩坑清单
+
+| 现象 | 根因 | 处理 |
+| --- | --- | --- |
+| `registry-1.docker.io` 解析到 `199.16.156.11` | DNS 污染 | 配 `registry-mirrors`，**不要**硬编码 hosts |
+| `/v2/` 200 但拉取超时 | blob 302 到被干扰的 Cloudflare 域名 | 换能直出 blob 的源，或走断点续传脚本 |
+| pull 永远停在最后几层 | `docker pull` 无跨次续传 | `pull-images-resilient.sh` |
+| 重启 docker / 关机后进度归零 | 未提交层被丢弃 | 断点续传把数据落在**普通目录**，与 docker 生命周期解耦 |
+| `/tmp` 下日志突然消失 | 目标机 `/tmp` 是 tmpfs | 日志与缓存一律放 `/opt/obara/` 下 |
+| `docker load` 不认 OCI layout | docker-archive 与 OCI 是两种格式 | 生成 `manifest.json` + `layer.tar` 的 docker-archive |
+| `ctr import --base-name repo:tag` 名字重复 tag | `--base-name` 只接受 repo 部分 | 去掉 tag 或导入后 `ctr images tag` 纠正 |
+| 内网传输镜像比公网快几个数量级 | 出口带宽受限 / 干扰 | 有条件时优先"本机下载 + 内网传输" |
+
+### 10.8 运维注意
+
+- 本机 `docker compose up -d` 启动后容器为 `unless-stopped`；**手动 `docker compose stop` 后关机，开机不会自动恢复**
+- 该服务器暂未部署 8081 门户与 80 端口登录守卫（第八章之前的机器才有），如需上线按 `install-autostart.sh` / `enable-admin-gate.sh` 执行
+- `.env` 与 `secrets-backup` 不要进 Git；`SYSTEM_AES_KEY` 单独离线保存
+- 镜像拉取若再遇弱网，直接复用 `pull-images-resilient.sh`，它是幂等的，已下载的层会跳过
+

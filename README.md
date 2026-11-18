@@ -114,6 +114,8 @@
 > 以下为整体流程概览，每一步的详细操作将在后续章节/文档中补充完善。
 >
 > 📄 **阶段一（Docker 环境）、阶段二（WeKnora 部署）与阶段三（Ollama 本地向量模型）的已实际执行记录**——含具体命令、踩坑原因与验证结果——见 [`docs/deployment/deployment-log.md`](docs/deployment/deployment-log.md)。
+>
+> 📄 另一台线上服务器 `192.168.160.42`（Ubuntu 26.04 / 6C30G）的重建部署，以及弱网下"镜像永远下不完"的断点续传方案，见 [`deployment-log.md` 第十章](docs/deployment/deployment-log.md#十线上服务器重建部署192168160422026-11-17--11-18)。
 
 ### 阶段一：虚机与系统准备（信息课 + 业务侧）
 
@@ -655,6 +657,7 @@ obara-weknora-setup/
 | `scripts/deploy/install-docker.sh` | 一键安装 Docker CE + Compose 插件，配置镜像加速器、日志轮转并验证 |
 | `scripts/deploy/fix-docker-env.sh` | 修复 APT 源域名、重新探测加速器、重启 Docker 使 `daemon.json` 生效 |
 | `scripts/deploy/configure-mirrors.sh` | 国内镜像加速器自动探测与配置（默认只写配置，`--apply` 重启生效） |
+| `scripts/deploy/pull-images-resilient.sh` | 弱网/镜像站间歇可用时，断点续传拉取单个镜像并导入 docker（替代反复失败的 `docker pull`） |
 | `scripts/deploy/install-ollama.sh` | 阶段三：安装 Ollama 服务（systemd）并拉取 Embedding 模型，内置多下载源回退 |
 | `scripts/deploy/configure-deepseek.sh` | 阶段四：注册 DeepSeek 对话模型（快速问答 / 智能推理）与本地 Ollama 向量模型，并做上游连通性验证 |
 | `scripts/deploy/install-rerank.sh` | 阶段五：部署本地 Rerank 服务（infinity + `bge-reranker-v2-m3`）并注册到 WeKnora |
@@ -687,6 +690,7 @@ obara-weknora-setup/
 sudo bash scripts/deploy/install-docker.sh      # 首次安装
 sudo bash scripts/deploy/fix-docker-env.sh      # 配置未生效 / 源或加速器异常
 sudo bash scripts/deploy/configure-mirrors.sh   # 重新探测国内镜像加速器并写入配置
+sudo bash scripts/deploy/pull-images-resilient.sh wechatopenai/weknora-docreader:v0.8.3   # 弱网断点续传拉镜像
 sudo bash scripts/deploy/install-ollama.sh      # 安装 Ollama 并拉取向量模型（阶段三）
 sudo DEEPSEEK_API_KEY='sk-xxxxx' bash scripts/deploy/configure-deepseek.sh   # 配置对话模型（阶段四）
 sudo bash scripts/deploy/install-autostart.sh   # 安装门户（8081）开机自启

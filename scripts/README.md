@@ -21,6 +21,7 @@ scripts/
 | `deploy/install-docker.sh` | 全新虚机首次安装 Docker | `sudo bash scripts/deploy/install-docker.sh` |
 | `deploy/fix-docker-env.sh` | Docker 已安装，但配置未生效、APT 源或镜像加速器异常 | `sudo bash scripts/deploy/fix-docker-env.sh` |
 | `deploy/configure-mirrors.sh` | 重新探测国内镜像加速器 | `sudo bash scripts/deploy/configure-mirrors.sh` |
+| `deploy/pull-images-resilient.sh` | 弱网/镜像站间歇可用时，断点续传拉取单个镜像并导入 docker | `sudo bash scripts/deploy/pull-images-resilient.sh wechatopenai/weknora-docreader:v0.8.3` |
 | `deploy/install-ollama.sh` | 阶段三：安装 Ollama 服务并拉取 Embedding 模型 | `sudo bash scripts/deploy/install-ollama.sh` |
 | `deploy/configure-deepseek.sh` | 阶段四：注册 DeepSeek 对话模型与本地 Ollama 向量模型并验证连通性 | `sudo DEEPSEEK_API_KEY='sk-xxxxx' bash scripts/deploy/configure-deepseek.sh` |
 | `deploy/install-rerank.sh` | 阶段五：部署本地 Rerank 服务容器并注册到 WeKnora | `sudo bash scripts/deploy/install-rerank.sh` |
@@ -56,6 +57,33 @@ sudo bash scripts/deploy/install-docker.sh
 
 - 当前终端运行 `newgrp docker` 或重新登录，才能免 `sudo` 使用 `docker`
 - 若 `hello-world` 拉取失败，见下方"常见问题"，或执行 `fix-docker-env.sh`
+
+### pull-images-resilient.sh
+
+用途：当 `docker pull` 反复失败、镜像站时通时断，或镜像含数百 MB 大层（如 `weknora-docreader`）时，用断点续传方式把镜像落到本地并导入 `docker`。
+
+```bash
+sudo bash scripts/deploy/pull-images-resilient.sh wechatopenai/weknora-docreader:v0.8.3
+```
+
+为什么需要它：
+
+- `docker pull` **不支持跨次断点续传**：连接一断，未完成的层从头重下；网络只有几分钟可用窗口时，大层永远下不完
+- 本脚本改用 `curl -C -` 把每层 blob 写入 `/opt/obara/image-cache`，中断后从断点继续，可跨多次网络窗口接力
+- 全部 blob 到齐后，自动解包成 `docker-archive`（`manifest.json` + `layer.tar`）并 `docker load`
+
+可选环境变量：
+
+| 变量 | 默认值 | 说明 |
+| --- | --- | --- |
+| `REGISTRY_MIRRORS` | `docker.367231.xyz,hub.1panel.dev,docker.1panel.live,dockerproxy.cool,docker.1ms.run,docker.m.daocloud.io` | 逗号分隔，按顺序尝试；每个 blob 失败会轮换下一个源 |
+| `WORKDIR` | `/opt/obara/image-cache` | blob 与 tar 的落盘目录（导入成功后自动清理） |
+
+说明：
+
+- 需要至少 `压缩后镜像大小 × 3` 的可用磁盘（blob + 解包后的 layer.tar + tar 包）
+- 单层下载低于 20 KB/s 持续 25 秒会自动断开并换源，避免卡死在死连接上
+- 已完整下载的层会跳过，重复执行是幂等的
 
 ### fix-docker-env.sh
 
@@ -355,6 +383,13 @@ python3 scripts/portal/build-version.py --check   # 查看当前版本号
 | 被拦截后没跳转到 8081 | ① 先硬刷新一次（Ctrl+Shift+R）：网关对 HTML 已下发 `Cache-Control: no-store`，旧页面不会再用；② 跳转地址默认取部署时的内网 IP（`GATE_PORTAL_URL`），如需改就 `sudo systemctl edit obara-admin-gate` 覆盖该变量 |
 | 移动仓库目录后门户启动失败 | 重新执行 `sudo bash scripts/deploy/install-autostart.sh` 更新 systemd 中的工作目录与脚本路径 |
 | 执行过 `start-all.sh stop` 后重启虚机，容器没回来 | 容器为 `unless-stopped` 策略，手动停止后不会自动启动；执行一次 `bash scripts/start-all.sh` |
+| `docker pull` 反复重试、大层始终下不完 | 用 `pull-images-resilient.sh` 断点续传；`docker pull` 断线后整层重下，弱网下无解 |
+| 镜像站 `/v2/` 返回 200，但拉取仍超时 | `/v2/` 只证明控制面可达，blob 可能被 302 到 `production.cloudflare.docker.com`（常被干扰）。换用能直出 blob 的源，或直接走断点续传 |
+| `/etc/resolv.conf` 正常但 `registry-1.docker.io` 解析到错误 IP | DNS 污染。配 `registry-mirrors` 即可绕开，**不要**手改 `/etc/hosts` 硬编码 IP（CDN IP 会轮换） |
+| `docker compose config` 报变量未定义 | 在 `docker-compose.yml` 同目录补 `.env`；`env_file` 不会影响 compose 变量替换 |
+| `ctr -n moby images import --base-name repo:tag` 后镜像名变成 `repo:tag:tag` | `--base-name` 不要再带 tag；或导入后 `ctr images tag` 纠正再 `export` |
+| `ctr images export` 报 `archive/tar: write too long` | content store 与 OCI 布局不匹配时会出现；改用 `pull-images-resilient.sh` 直接生成 `docker-archive` |
+| `docker load` 报 `does not contain a manifest.json` | `docker load` 只认 docker-archive；OCI layout 需要先用 `skopeo` / `ctr` 转换，或直接用本仓库脚本 |
 
 ## 相关文档
 

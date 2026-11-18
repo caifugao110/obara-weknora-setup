@@ -24,6 +24,9 @@ CANDIDATES=(
   "https://docker.m.daocloud.io"
   "https://docker.1ms.run"
   "https://docker.1panel.live"
+  "https://hub.1panel.dev"
+  "https://docker.367231.xyz"
+  "https://dockerproxy.cool"
   "https://docker.xuanyuan.me"
   "https://docker.nju.edu.cn"
   "https://docker.ckyl.me"
@@ -47,7 +50,16 @@ for m in "${CANDIDATES[@]}"; do
   # imgdb.de 之类已变域名售卖页的站点会返回 200 的 HTML，用 content-type 过滤
   ctype="$(curl -o /dev/null -sS -m 8 -w "%{content_type}" "${m}/v2/" 2>/dev/null || true)"
   if [[ "${code}" =~ ^(200|401)$ ]] && [[ "${ctype}" != text/html* ]]; then
-    printf "    [OK]   %-38s HTTP=%s TTFB=%ss\n" "${m}" "${code}" "${ttfb}"
+    # /v2/ 只代表控制面可达；再探一次 manifest，避免选中"控制面 200、blob 被跳转到不可达 CDN"的源
+    mcode="$(curl -o /dev/null -sS -m 8 -w "%{http_code}" \
+      -H "Accept: application/vnd.docker.distribution.manifest.v2+json,application/vnd.oci.image.manifest.v1+json" \
+      "${m}/v2/library/hello-world/manifests/latest" 2>/dev/null || true)"
+    [[ -z "${mcode}" ]] && mcode=000
+    if [[ "${mcode}" =~ ^(200|401)$ ]]; then
+      printf "    [OK]   %-38s HTTP=%s TTFB=%ss manifest=%s\n" "${m}" "${code}" "${ttfb}" "${mcode}"
+    else
+      printf "    [OK*]  %-38s HTTP=%s TTFB=%ss manifest=%s（数据面可能不通）\n" "${m}" "${code}" "${ttfb}" "${mcode}"
+    fi
     AVAILABLE+=("${m}")
     TTFB["${m}"]="${ttfb}"
   else

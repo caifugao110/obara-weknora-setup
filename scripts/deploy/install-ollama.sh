@@ -8,6 +8,7 @@
 #   sudo bash scripts/deploy/install-ollama.sh --models "bge-m3 embeddinggemma:300m"
 #   sudo bash scripts/deploy/install-ollama.sh --skip-models         # 只装服务，不拉模型
 #   sudo bash scripts/deploy/install-ollama.sh --models-dir /opt/ollama/models
+#   sudo bash scripts/deploy/install-ollama.sh --package /tmp/ollama-linux-amd64.tar.zst  # 离线包（目标机无外网时）
 #
 # 特性：幂等，可重复执行；已安装且版本满足要求时会跳过重装。
 #
@@ -21,6 +22,7 @@ KEEP_ALIVE="10m"
 MAX_LOADED_MODELS=2
 SKIP_MODELS="false"
 REINSTALL="false"
+PKG_LOCAL=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -29,6 +31,7 @@ while [[ $# -gt 0 ]]; do
     --listen)        OLLAMA_LISTEN="${2}"; shift 2 ;;
     --keep-alive)    KEEP_ALIVE="${2}"; shift 2 ;;
     --skip-models)   SKIP_MODELS="true"; shift ;;
+    --package)       PKG_LOCAL="${2:-}"; shift 2 ;;
     --reinstall)     REINSTALL="true"; shift ;;
     -h|--help)
       sed -n '2,20p' "$0"; exit 0 ;;
@@ -54,10 +57,22 @@ source /etc/os-release
 echo "==> 系统：${PRETTY_NAME}  架构：${ARCH}（${ARCH_SUFFIX}）"
 
 # ---------------------------------------------------------------- 1. 依赖
-echo "==> [1/7] 安装依赖（curl / zstd / jq）"
+echo "==> [1/7] 检查依赖（curl / zstd / jq）"
 export DEBIAN_FRONTEND=noninteractive
-apt-get update -y -qq
-apt-get install -y -qq curl zstd jq >/dev/null
+MISSING_DEPS=""
+for bin in curl zstd jq; do
+  command -v "${bin}" >/dev/null 2>&1 || MISSING_DEPS="${MISSING_DEPS} ${bin}"
+done
+if [[ -n "${MISSING_DEPS}" ]]; then
+  echo "    缺少依赖：${MISSING_DEPS}，尝试安装"
+  apt-get update -y -qq || echo "    ⚠️ apt-get update 失败（离线环境可忽略）"
+  apt-get install -y -qq ${MISSING_DEPS} >/dev/null || {
+    echo "❌ 依赖安装失败：${MISSING_DEPS}。离线环境请预装后重跑。" >&2
+    exit 1
+  }
+else
+  echo "    依赖已就绪，跳过 apt"
+fi
 
 # ---------------------------------------------------------------- 2. 下载 Ollama 发行包
 # 下载源优先级：
@@ -78,6 +93,16 @@ else
 fi
 
 if [[ "${SKIP_INSTALL}" == "false" ]]; then
+if [[ -n "${PKG_LOCAL}" ]]; then
+  # 离线包模式：跳过所有在线源，直接使用指定文件
+  if [[ ! -f "${PKG_LOCAL}" ]]; then
+    echo "❌ 离线包不存在：${PKG_LOCAL}" >&2
+    exit 1
+  fi
+  echo "    使用离线包：${PKG_LOCAL}"
+  PKG_FILE="${PKG_LOCAL}"
+  ls -lh "${PKG_FILE}"
+else
 PKG_URLS=(
   "https://modelscope.cn/models/modelscope/ollama-linux/resolve/master/ollama-linux-${ARCH_SUFFIX}.tar.zst"
   "https://ollama.com/download/ollama-linux-${ARCH_SUFFIX}.tgz"
@@ -105,6 +130,7 @@ if [[ -z "${PKG_FILE}" ]]; then
   echo "❌ 所有下载源均失败。请检查外网/代理后重试，或参考主文档 1.4 节配置代理。" >&2
   exit 1
 fi
+fi  # 结束 【在线源】分支
 fi  # 结束 【下载发行包】块，已安装时会跳过上述整段
 
 # ---------------------------------------------------------------- 3. 安装二进制
