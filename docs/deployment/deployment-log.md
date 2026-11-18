@@ -3,7 +3,7 @@
 > 本文记录**阶段一（Docker 环境）、阶段二（WeKnora 部署）、阶段三（Ollama 本地向量模型）、阶段四（DeepSeek 对话模型）与阶段五（本地 Rerank 重排服务）**的实际执行过程、遇到的问题与验证结果。
 > 顶层方案见 [README](../../README.md)；本文只记录"实际怎么做的、踩了什么坑"，便于复现与交接。
 >
-> 最后更新：2026-11-18（新增第十章：线上服务器 `192.168.160.42` 重建部署记录）
+> 最后更新：2026-11-18（第十章已补齐该机阶段四~六、多租户人员初始化、门户与性能实测）
 
 ---
 
@@ -870,11 +870,14 @@ journalctl -u obara-admin-gate -f        # [DENY] / [DENY-PAGE] 拦截记录
 
 ### 10.1 背景与目标
 
-在客户内网一台全新虚机上重建 OBARA 知识库系统，只做**阶段一（Docker）+ 阶段二（WeKnora v0.8.3）+ 阶段三（Ollama 向量模型）**，
-DeepSeek 对话模型、Rerank 与知识库初始化留待后续。
+在客户内网一台虚机上完成 OBARA 知识库系统的**全部六个阶段**：Docker 环境、WeKnora v0.8.3、Ollama 本地向量模型、
+DeepSeek 对话模型、本地 Rerank、知识库与智能体，并完成"5. 安全与运维"（RBAC、多租户、8081 门户、80 端口守卫）与全体人员初始化。
+
+时间线：2026-11-17 完成阶段一~三；2026-11-18 完成阶段四~六、人员初始化与门户上线。
 
 与第四章那台机器（`192.168.227.133`，Ubuntu 20.04 / 15 GB）最大的不同：
-**这台机器的公网出口极不稳定**，镜像拉取成为整个部署中唯一、也是耗时最长的阻塞点。本章重点记录这部分。
+**这台机器的公网出口极不稳定且大部分时间完全不通**，镜像与模型只能"本机中转 + 内网传输"，DeepSeek 调用则依赖一条
+反向代理隧道。本章 10.4、10.9 两节重点记录这部分。
 
 ### 10.2 环境基线
 
@@ -888,7 +891,8 @@ DeepSeek 对话模型、Rerank 与知识库初始化留待后续。
 | Docker Compose | 2.40.3（V2 插件） |
 | Ollama | 0.17.5，监听 `0.0.0.0:11434`，模型目录 `/opt/ollama/models` |
 | 部署目录 | `/opt/obara/weknora` |
-| 服务端口 | 前端 `80`、后端 `8080`、Ollama `11434` |
+| 服务端口 | 门户 `8081`、80 端口登录守卫 `80`（→ 前端 `127.0.0.1:8088`）、后端 `8080`、Rerank `7997`、Ollama `11434` |
+| 远程接入 | SSH `22`；XRDP 图形桌面 `3389`（XFCE，见 10.2.1） |
 
 `/etc/docker/daemon.json` 最终配置：
 
@@ -911,6 +915,54 @@ DeepSeek 对话模型、Rerank 与知识库初始化留待后续。
 ```
 
 > `max-concurrent-downloads` 提到 16 是为弱网下的多连接吞吐；正常网络保持默认 3 即可。
+
+### 10.2.1 远程接入方式（SSH / XRDP 图形桌面）
+
+日常运维用 SSH（`gaojian@192.168.160.42`）即可。需要看 Linux 图形界面时（用浏览器操作 WeKnora、开文件管理器等），
+这台机已安装 **XFCE + XRDP**，直接用 Windows 自带的「远程桌面连接」连 `192.168.160.42`。
+
+安装命令（2026-11-17 实际执行）：
+
+```bash
+sudo apt update
+sudo apt install xfce4 xfce4-goodies -y
+sudo apt install xrdp -y
+sudo adduser xrdp ssl-cert
+echo xfce4-session > ~/.xsession
+sudo systemctl enable --now xrdp
+sudo ufw allow 3389/tcp
+```
+
+实际安装版本：
+
+| 组件 | 版本 |
+| --- | --- |
+| `xfce4` | 4.20.1 |
+| `xfce4-goodies` | 4.20.0build1 |
+| `xrdp` | 0.10.1-4.1ubuntu0.1 |
+
+上线后核验：
+
+```bash
+systemctl is-enabled xrdp     # enabled
+systemctl is-active xrdp      # active
+ss -lntp | grep 3389          # LISTEN *:3389（users xrdp）
+cat ~/.xsession               # xfce4-session
+id xrdp                       # 包含 ssl-cert 组
+```
+
+连接步骤：
+
+1. Windows 端运行 `mstsc`
+2. 计算机填 `192.168.160.42`
+3. 用户名 `gaojian`，密码同 SSH 密码
+4. 首次登录若弹出 "Authentication Required"（密钥环），输入同一密码即可
+
+注意事项：
+
+- 该机 `ufw` 当前为 **inactive**，`ufw allow 3389/tcp` 只是预留；若后续启用防火墙，务必放行 `3389/tcp`，否则远程桌面会立刻断连
+- XRDP 会话与物理控制台会话彼此独立；同一账号重复登录时选择「新会话」即可
+- 图形桌面常驻约占用 300~500 MB 内存，纯命令行运维时可以不装或 `systemctl stop xrdp`
 
 ### 10.3 部署目录与配置
 
@@ -1078,8 +1130,304 @@ docker exec WeKnora-app curl -s http://host.docker.internal:11434/api/tags | hea
 
 ### 10.8 运维注意
 
-- 本机 `docker compose up -d` 启动后容器为 `unless-stopped`；**手动 `docker compose stop` 后关机，开机不会自动恢复**
-- 该服务器暂未部署 8081 门户与 80 端口登录守卫（第八章之前的机器才有），如需上线按 `install-autostart.sh` / `enable-admin-gate.sh` 执行
+- 容器为 `unless-stopped`；`obara-portal`、`obara-admin-gate`、`docker`、`ollama` 均已 `enabled`，重启后自动恢复（见 10.13）
 - `.env` 与 `secrets-backup` 不要进 Git；`SYSTEM_AES_KEY` 单独离线保存
 - 镜像拉取若再遇弱网，直接复用 `pull-images-resilient.sh`，它是幂等的，已下载的层会跳过
+- 账号明文密码只落在服务器 `output/accounts-*.csv`，请限制访问权限（`chmod 600`）并按合规要求回收
+
+---
+
+### 10.9 阶段四：DeepSeek 对话模型（2026-11-18）
+
+#### 10.9.1 核心障碍：服务器完全无外网出口
+
+实测 `hf-mirror.com`、`api.deepseek.com`、Docker Hub 的 HTTP 返回码均为 `000`（连接超时），但内网网关正常。
+WeKnora 的对话模型必须访问 `https://api.deepseek.com`，因此需要一条**临时出网链路**。
+
+最终采用三段式转发（部署期方案，不建议长期使用）：
+
+```text
+WeKnora-app 容器
+   │  HTTP(S)_PROXY=host.docker.internal:8899
+   ▼
+宿主机 obara_forward.py  0.0.0.0:8899  ──►  127.0.0.1:18899
+   ▼
+SSH 反向隧道  -R 18899:127.0.0.1:8899（由本机 192.168.164.40 发起）
+   ▼
+本机 obara_proxy.py  0.0.0.0:8899（HTTP CONNECT 代理）──►  公网
+```
+
+| 环节 | 位置 | 说明 |
+| --- | --- | --- |
+| 出口代理 | 本机 `192.168.164.40` | `python obara_proxy.py`，监听 `0.0.0.0:8899` |
+| 反向隧道 | 本机 → 服务器 | `ssh -N -R 18899:127.0.0.1:8899 gaojian@192.168.160.42`；Windows 无 sshpass，用 `SSH_ASKPASS` 提供密码 |
+| 宿主机转发 | 服务器 | `obara_forward.py`：`0.0.0.0:8899 → 127.0.0.1:18899`，以 `setsid nohup` 常驻 |
+
+容器侧在 `.env` 中追加：
+
+```dotenv
+HTTP_PROXY=http://host.docker.internal:8899
+HTTPS_PROXY=http://host.docker.internal:8899
+NO_PROXY=localhost,127.0.0.1,host.docker.internal,postgres,redis,docreader,WeKnora-app,192.168.0.0/16,172.16.0.0/12,10.0.0.0/8
+WEKNORA_OUTBOUND_DIAL_TIMEOUT=30s
+SSRF_WHITELIST_EXTRA=192.168.160.42,127.0.0.1,localhost,host.docker.internal,172.16.0.0/12,192.168.0.0/16,api.deepseek.com,*.deepseek.com
+```
+
+> Docker 守护进程本身也配置了 `/etc/systemd/system/docker.service.d/http-proxy.conf`，以便拉取镜像时走同一代理。
+
+#### 10.9.2 模型注册结果
+
+| 模型 | 类型 | 模型 ID | 用途 |
+| --- | --- | --- | --- |
+| `deepseek-flash` | Chat | `3ae022dc-355e-4f73-ab64-85b321e124d4` | 快速问答（智能体默认） |
+| `deepseek-v4-pro` | Chat | — | 智能推理备选 |
+| `bge-m3` | Embedding | `1ee364c9-51f8-4bca-883a-dbf09bef5b5b` | 本地 1024 维向量 |
+
+API Key 由 WeKnora 用 `SYSTEM_AES_KEY` 加密入库，文档与脚本中不出现明文。
+
+#### 10.9.3 踩坑
+
+| 现象 | 根因 | 处理 |
+| --- | --- | --- |
+| 注册模型返回 409 | 初始以 `tenantless` 注册，无租户上下文 | 临时改 `create_personal` 注册出 workspace `10000`，再切回 `tenantless` 重启，触发 bootstrap 提权 |
+| 注册/调用返回 400 "SSRF/域名解析失败" | 出站域名不在白名单 | `SSRF_WHITELIST_EXTRA` 增加 `api.deepseek.com,*.deepseek.com` 后重建 app |
+| 隧道建立后容器仍连不通 | 容器内 `localhost` 指向自身 | 统一用 `host.docker.internal:8899`，并确认 compose 有 `host.docker.internal:host-gateway` |
+
+验证：容器内 `curl https://api.deepseek.com` 返回 `401`（可达、未带 Key）；门户对话返回正常答案。
+
+---
+
+### 10.10 阶段五：本地 Rerank 重排服务（2026-11-18）
+
+Ollama 不提供 rerank，WeKnora v0.8.3 的 compose 也未内置，因此单独部署 `infinity`（Cohere 兼容 `/rerank`）。
+
+| 项 | 值 |
+| --- | --- |
+| 镜像 | `michaelf34/infinity:0.0.78-cpu`（离线导入） |
+| 容器 | `weknora-rerank`，端口 `0.0.0.0:7997->7997` |
+| 资源上限 | `--cpus 4 --memory 4g`（NanoCpus=4e9，Memory=4 GiB） |
+| 模型 | `BAAI/bge-reranker-v2-m3`，权重目录 `/opt/obara/rerank-models/models/bge-reranker-v2-m3` |
+| batch | 8 |
+| WeKnora 注册 ID | `c53e140d-24a7-4c50-93e1-1d84627fb49f` |
+
+#### 10.10.1 离线获取（两项都要绕开外网）
+
+1. **镜像**：本机并行 Range 下载 5 层（约 743 MB）→ 生成 docker-archive（2.36 GB）→ SFTP 上传 → `docker load`
+2. **权重**：7 个文件，其中 `model.safetensors` 为 2,271,071,852 字节；先 SFTP 传小文件，大文件在服务器用 `curl -C -` 断点续传
+
+`scripts/deploy/install-rerank.sh` 为此增加"本地已有镜像则跳过拉取"，避免离线环境反复尝试 Docker Hub：
+
+```bash
+if docker image inspect "${IMAGE}:${IMAGE_TAG}" >/dev/null 2>&1; then
+  echo "    本地已有镜像 ${IMAGE}:${IMAGE_TAG}，跳过拉取"
+elif ! docker pull "${IMAGE}:${IMAGE_TAG}" >/dev/null 2>&1; then
+  ...
+```
+
+服务器实际执行：
+
+```bash
+sudo bash scripts/deploy/install-rerank.sh \
+  --admin-password '<后台密码>' --host-ip 192.168.160.42 \
+  --cpus 4 --memory 4g --batch-size 8
+```
+
+验证：`POST http://192.168.160.42:7997/rerank` 返回 `results[].relevance_score`；WeKnora 侧调用 `ok=true`。
+
+---
+
+### 10.11 阶段六：知识库初始化与扁平化改写（2026-11-18）
+
+#### 10.11.1 根因：`num_ctx=511` 截断
+
+WeKnora v0.8.3 调用嵌入模型时固定使用 **511 token 上下文**（即使 Ollama 模型本身是 8192）。
+Excel 宽表的 Markdown 分片里，表头占 200~300 token，实测**图号落在第 562 个字符处，完全没有进入向量**，
+表现就是"用图号本身检索也召不回"。因此 Excel 直导方案在这台机器上不可行。
+
+#### 10.11.2 方案：一行一段的扁平知识文件
+
+`scripts/kb/build-flat-kb.py` 从 Postgres 读取已解析分片，把每条记录改写成自然语言短句，关键字段前置：
+
+```text
+【X2C-V3-C C枪】图号：SDZC-3C30400L；客户：联恒沈阳G58项目；类型：小型；行程：182；加压力：6000；……
+```
+
+- 6 个文件共 **18,689 行**，最长一行 351 字符，均低于 511 token
+- 导入参数：`--chunk-size 400 --chunk-overlap 0`
+
+```bash
+bash scripts/kb/init-welding-gun-kb.sh \
+  --kb-dir /opt/obara/obara-weknora-setup/welding-gun-selection-kb/03-flat-knowledge \
+  --chunk-size 400 --chunk-overlap 0 --no-wait
+```
+
+#### 10.11.3 落地结果
+
+| 项 | 值 |
+| --- | --- |
+| 知识库 | `焊枪选型知识库` / `ee96e6dd-4630-49a3-9dc4-8ca6f392d35e` |
+| 智能体 | `焊枪选型助手` / `71e20478-57e7-4aec-a41d-f25d33253a46` |
+| 绑定模型 | embedding `bge-m3`、chat `deepseek-flash`、rerank `bge-reranker-v2-m3` |
+| 检索参数 | `embedding_top_k=20`、`rerank_top_k=8`、`rerank_threshold=0.3`、`vector_threshold=0.15`、`keyword_threshold=0.3` |
+
+6 个文档的分片数（按数据量排队处理）：
+
+| 文档 | 分片数 | 状态（2026-11-18 07:15 快照） |
+| --- | --- | --- |
+| `X2C-V3-C.md` | 145 | ✅ completed |
+| `X2C-V3-X.md` | 117 | ✅ completed |
+| `X2C-V2-C.md` | 1,692 | 🔄 processing |
+| `X2C-V2-X.md` | 2,312 | 🔄 processing |
+| `X2C-C.md` | 4,816 | 🔄 processing |
+| `X2C-X.md` | 8,362 | 🔄 processing |
+| 合计 | **17,444** | 已完成 262 段向量 |
+
+小样本端到端验收（V3-C，2 个用例）：**2/2 命中**，单次问答约 45 秒。
+
+> 注意：WeKnora 是**按文档整体写入向量**，文档 `processing` 期间 `embeddings` 计数不变是正常现象。
+
+---
+
+### 10.12 多租户与全体人员初始化（"5. 安全与运维"，2026-11-18）
+
+#### 10.12.1 配置基线
+
+```dotenv
+WEKNORA_BOOTSTRAP_SYSTEM_ADMIN_EMAIL=admin@obara.local
+WEKNORA_TENANT_ENABLE_RBAC=true
+WEKNORA_AUTH_DEFAULT_TENANT_MODE=tenantless
+FRONTEND_BASE_URL=http://192.168.160.42:8081
+DISABLE_REGISTRATION=false
+```
+
+`DISABLE_REGISTRATION=false` 是有意保留：`init-tenants.sh` 直连 8080 批量开户需要它；对外注册入口由 80 网关和 8081 门户两层拦截。
+
+#### 10.12.2 前置修正（本次新增）
+
+首次执行 `init-tenants.sh` 被拒绝：
+
+```text
+❌ 账号 admin@obara.local 不是跨空间超管，无法批量创建部门空间。
+```
+
+原因：`is_system_admin=true` 但 `can_access_all_tenants=false`（bootstrap 只设置了前者）。执行：
+
+```sql
+UPDATE users SET can_access_all_tenants = true WHERE email = 'admin@obara.local';
+```
+
+> 该修正未写进 `.env`，升级/重建库后需要重新确认一次。
+
+#### 10.12.3 初始化结果
+
+```bash
+ADMIN_PASSWORD='<后台密码>' bash scripts/multi-tenant/init-tenants.sh
+```
+
+| 项 | 结果 |
+| --- | --- |
+| 部门工作空间 | **16 个**（NJG 9 + SHA 7），加 admin 空间共 17 个 tenant |
+| 人员账号 | **176 新建 + 10 已存在**（10 人跨部门，账号复用） |
+| 成员关系 | 186 条人员加入部门（失败 0），另有 16 条 admin owner |
+| 每个空间模型 | 4 个（bge-m3 / deepseek-flash / deepseek-v4-pro / bge-reranker-v2-m3） |
+| 每个空间智能体 | 1 个内置「快速问答」，已绑定对话与重排模型 |
+| 平台超管 | `admin@obara.local` 是全部 17 个空间的 **owner** |
+
+部门与成员数（数据源人数，不含超管）：
+
+| 空间 | 成员 | 空间 | 成员 |
+| --- | --- | --- | --- |
+| NJG-总经理室 | 2 | SHA-总经理室 | 2 |
+| NJG-经理部 | 4 | SHA-经理部 | 4 |
+| NJG-管理部 | 7 | SHA-管理部 | 7 |
+| NJG-品质保证部 | 9 | SHA-购买部 | 6 |
+| NJG-营业部 | 25 | SHA-品质保证部 | 3 |
+| NJG-制造部 | 15 | SHA-营业部 | 14 |
+| NJG-技术开发一部 | 34 | SHA-制造部 | 13 |
+| NJG-购买部 | 10 | | |
+| NJG-技术开发二部 | 31 | | |
+
+合计 **186 人**。另有 admin 作为 owner 加入每个部门（16 条），因此 `tenant_members` 共 **202 条**，`users` 共 **177 个**（176 人员 + admin）。
+
+#### 10.12.4 权限说明
+
+- 按设计，**所有人以 `contributor` 身份加入本部门空间**，不自动授予 owner；部门负责人由超管在门户或原生后台指派
+- 数据中没有 `is_admin` 标记，因此没有遗漏任何"应设管理员"的人
+- 账号与邀请链接清单：
+  - `output/accounts-<时间戳>.csv`（含明文初始密码，**敏感，勿进 Git**）
+  - `output/invitations-<时间戳>.txt`
+
+#### 10.12.5 跨空间目录接口
+
+`GET /api/v1/tenants/all` 默认返回 `Cross-workspace access is disabled`，受
+`WEKNORA_TENANT_ENABLE_CROSS_TENANT_ACCESS`（默认 `false`）控制。这**不影响**门户：
+门户使用 `GET /api/v1/auth/me` 的 `memberships`（17 条 owner 记录）渲染工作空间切换器。
+
+---
+
+### 10.13 8081 门户与 80 端口登录守卫（2026-11-18）
+
+| 服务 | 监听 | 上游 | 说明 |
+| --- | --- | --- | --- |
+| `obara-portal.service` | `0.0.0.0:8081` | `http://127.0.0.1:8080` | Python 标准库门户，`User=gaojian`，`Restart=always` |
+| `obara-admin-gate.service` | `0.0.0.0:80` | `http://127.0.0.1:8088` | 仅 `GATE_ADMIN_EMAILS=admin@obara.local` 可登录，其余跳 8081 |
+| `WeKnora-frontend` | `127.0.0.1:8088` | — | 前端容器改为只监听本机，80 对外只暴露守卫 |
+
+两个服务均 `enabled`。守卫只授予 `CAP_NET_BIND_SERVICE` 绑定 80，不以 root 运行（`NoNewPrivileges=true`）。
+
+验证结果：
+
+```bash
+curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8081/   # 200
+curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1/        # 200（gate 页面）
+```
+
+- 8081 门户登录成功，可拉取智能体与知识库列表
+- 80 端口非白名单账号被拒绝并重定向到 8081
+- 用户最终访问地址：**`http://192.168.160.42:8081`**
+
+---
+
+### 10.14 性能实测：向量化为什么需要 6~8 小时
+
+| 指标 | 实测 |
+| --- | --- |
+| 聚合吞吐 | 约 **0.6 分片/秒**（6 个文档并发，Ollama 占用 600% CPU ≈ 6 核全满） |
+| 单文档（145 段） | **426.6 秒**，约 2.9 秒/段 |
+| 单条 300 token 分片 | 15~25 秒 |
+| 剩余 17,182 段 | 预计 **6~8 小时** |
+
+根因：
+
+1. **纯 CPU 算力不足**：bge-m3 566M 参数，单条 300 token 前向约 `2 × 5.66亿 × 300 ≈ 340 GFLOP`；
+   Xeon E5-2676 v3 单核约 20 GFLOPS，理论下限就是十几秒/段
+2. **6 个文档并发均分 6 核**，每个请求约 1 核，无法靠多线程降低单条延迟
+3. **WeKnora 逐分片调用 `/api/embed`**，HTTP、分词、调度固定开销被放大 17,444 次；日志中还出现过模型
+   keep-alive 到期卸载（`ollama ps` 显示 `Stopping...`）
+4. **511 上下文**把分片压到约 400 字符，段数被推高
+
+可选的加速手段（本次未采用，保持与 README 选型一致）：
+
+| 方向 | 效果 | 代价 |
+| --- | --- | --- |
+| 换小模型（如 `nomic-embed-text` 137M） | 快 4~5 倍，约 1.5~2 小时 | 偏离 bge-m3 选型，中文检索质量下降 |
+| 增加 CPU 核 / GPU | 近线性提升 | 需要改硬件 |
+| 保持现状 | 约 8 小时 | 无质量损失 |
+
+---
+
+### 10.15 遗留事项
+
+1. 4 个大文件仍在向量化，完成后执行全量验收：
+
+   ```bash
+   cd /opt/obara/obara-weknora-setup
+   ADMIN_PASSWORD='<后台密码>' bash scripts/kb/verify-welding-gun-kb.sh --cases 6
+   ```
+
+2. **DeepSeek 依赖本机代理与反向隧道**：服务器本身仍无外网。本机重启或代理进程退出后，对话会报网络/SSRF 错误。
+   长期方案是给服务器放通 `api.deepseek.com`，然后移除 `.env` 中的 `HTTP_PROXY/HTTPS_PROXY`。
+3. 各部门 owner 尚未指派，需要超管按组织架构手动设置。
+4. 186 个初始密码为脚本随机生成，建议首次登录后强制修改；`output/accounts-*.csv` 按合规要求回收或加密保管。
+5. 数据库修正 `can_access_all_tenants=true` 未持久化到配置，重建数据库后需重新执行（见 10.12.2）。
 

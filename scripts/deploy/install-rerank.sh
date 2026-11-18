@@ -126,7 +126,9 @@ echo "    WeKnora 侧 Base URL：${RERANK_BASE_URL}"
 
 # ---------------------------------------------------------------- 2. 容器镜像
 echo "==> [2/8] 准备容器镜像"
-if ! docker pull "${IMAGE}:${IMAGE_TAG}" >/dev/null 2>&1; then
+if docker image inspect "${IMAGE}:${IMAGE_TAG}" >/dev/null 2>&1; then
+  echo "    本地已有镜像 ${IMAGE}:${IMAGE_TAG}，跳过拉取"
+elif ! docker pull "${IMAGE}:${IMAGE_TAG}" >/dev/null 2>&1; then
   echo "    直连 Docker Hub 失败，尝试国内镜像源…"
   pulled="false"
   for m in "${MIRRORS[@]}"; do
